@@ -1,30 +1,36 @@
 import cv2
-import sys
+from modules.camera_handler import CameraHandler
 
-def test_setup():
-    print("Initializing FaceLock Environment...")
+def run_application():
+    print("Starting FaceLock...")
     
-    # Check OpenCV and Camera
-    cap = cv2.Session = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        print("Error: Could not access the webcam.")
+    # Initialize the camera module
+    try:
+        camera = CameraHandler(camera_index=0)
+    except Exception as e:
+        print(f"Initialization Error: {e}")
         return
 
-    print("Webcam accessed successfully. Press 'q' to exit the test.")
-    
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-            
-        cv2.imshow('FaceLock Environment Test', frame)
-        
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+    print("Camera Module Active. Press 'q' to stop.")
 
-    cap.release()
-    cv2.destroyAllWindows()
-    print("Setup verified.")
+    try:
+        while True:
+            success, frame = camera.get_frame()
+            
+            if not success:
+                print("Failed to grab frame.")
+                break
+
+            # Placeholder for future modules (Detection/Recognition)
+            # Display the resulting frame
+            cv2.imshow('FaceLock - Acquisition Module', frame)
+
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+    finally:
+        # Ensure resources are released even if an error occurs
+        camera.release()
+        print("System shutdown cleanly.")
 
 if __name__ == "__main__":
-    test_setup()
+    run_application()
