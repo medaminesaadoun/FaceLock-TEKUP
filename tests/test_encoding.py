@@ -23,3 +23,50 @@ def test_secure_clear_zeros_buffer():
     buf = bytearray(b"sensitive face data")
     secure_clear(buf)
     assert all(b == 0 for b in buf)
+
+
+import tempfile
+from modules.database import (
+    initialize, check_integrity, add_user, get_user,
+    save_embedding, get_embedding, log_auth_event, erase_user
+)
+
+def _tmp_db():
+    f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    f.close()
+    return f.name
+
+def test_database_initializes_and_passes_integrity():
+    db = _tmp_db()
+    initialize(db)
+    assert check_integrity(db)
+    os.unlink(db)
+
+def test_add_and_get_user():
+    db = _tmp_db()
+    initialize(db)
+    add_user(db, "alice", "2026-04-17T00:00:00", "1.0", "none", None)
+    user = get_user(db, "alice")
+    assert user["windows_username"] == "alice"
+    os.unlink(db)
+
+def test_save_and_get_embedding():
+    db = _tmp_db()
+    initialize(db)
+    add_user(db, "alice", "2026-04-17T00:00:00", "1.0", "none", None)
+    user = get_user(db, "alice")
+    save_embedding(db, user["id"], b"fake_encrypted_blob")
+    assert get_embedding(db, user["id"]) == b"fake_encrypted_blob"
+    os.unlink(db)
+
+def test_erase_user_removes_all_records():
+    db = _tmp_db()
+    initialize(db)
+    add_user(db, "alice", "2026-04-17T00:00:00", "1.0", "none", None)
+    user = get_user(db, "alice")
+    save_embedding(db, user["id"], b"fake_encrypted_blob")
+    log_auth_event(db, "alice", "pass", "core")
+    erase_user(db, "alice")
+    assert get_user(db, "alice") is None
+    assert get_embedding(db, user["id"]) is None
+    os.unlink(db)
