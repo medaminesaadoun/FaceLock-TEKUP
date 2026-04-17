@@ -1,6 +1,5 @@
 # modules/encryption.py
 import os
-import ctypes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import win32crypt
 
@@ -10,6 +9,7 @@ def generate_key() -> bytes:
 
 
 def _protect(key: bytes) -> bytes:
+    # DPAPI binds this key to the current Windows user account — only that user can unprotect it
     return win32crypt.CryptProtectData(key, None, None, None, None, 0)
 
 
