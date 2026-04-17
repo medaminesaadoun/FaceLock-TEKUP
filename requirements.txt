@@ -3,3 +3,5 @@ mediapipe
 face_recognition
 cryptography
 pywin32
+bcrypt
+pillow
