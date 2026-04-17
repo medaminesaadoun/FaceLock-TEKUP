@@ -5,7 +5,7 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
 import config
-from modules.database import erase_user, add_user
+from modules.database import erase_user, add_user, get_user
 from modules.encryption import secure_wipe
 
 CONSENT_TEXT = """\
@@ -47,7 +47,6 @@ def record_consent(db_path: str, username: str, fallback: str,
 
 
 def has_consent(db_path: str, username: str) -> bool:
-    from modules.database import get_user
     return get_user(db_path, username) is not None
 
 
