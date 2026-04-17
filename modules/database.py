@@ -61,7 +61,7 @@ def add_user(db_path: str, username: str, consent_ts: str,
         return cur.lastrowid
 
 
-def get_user(db_path: str, username: str) -> Optional[sqlite3.Row]:
+def get_user(db_path: str, username: str) -> Optional[dict]:
     with closing(get_connection(db_path)) as conn:
         row = conn.execute(
             "SELECT * FROM users WHERE windows_username = ?", (username,)

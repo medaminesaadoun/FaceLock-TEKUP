@@ -70,3 +70,20 @@ def test_erase_user_removes_all_records():
     assert get_user(db, "alice") is None
     assert get_embedding(db, user["id"]) is None
     os.unlink(db)
+
+
+def test_update_last_used_sets_timestamp():
+    from modules.database import get_connection, update_last_used
+    db = _tmp_db()
+    initialize(db)
+    add_user(db, "alice", "2026-04-17T00:00:00", "1.0", "none", None)
+    user = get_user(db, "alice")
+    save_embedding(db, user["id"], b"fake_blob")
+    update_last_used(db, user["id"])
+    conn = get_connection(db)
+    row = conn.execute(
+        "SELECT last_used_at FROM embeddings WHERE user_id = ?", (user["id"],)
+    ).fetchone()
+    conn.close()
+    assert row["last_used_at"] is not None
+    os.unlink(db)
