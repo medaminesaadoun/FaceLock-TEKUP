@@ -108,7 +108,7 @@ Detection (fast) gates recognition (expensive) to keep CPU usage low during idle
 - Runs only when MediaPipe confirms face presence (~3-5fps on CPU)
 - Extracts 128-d float embedding via `face_recognition.face_encodings()`
 - Compares against stored embedding using `face_recognition.face_distance()`
-- Auth passes when distance stays below configured threshold for 3 consecutive frames
+- Auth passes when distance stays below configured threshold for 3 consecutive frames; counter resets on any single failed frame
 
 ### 3.2 Enrollment Flow
 
@@ -125,7 +125,7 @@ Detection (fast) gates recognition (expensive) to keep CPU usage low during idle
 2. Extract 128-d embedding from confirmed frame (Stage 2)
 3. Load encrypted embedding from DB, decrypt in memory
 4. Compute `face_recognition.face_distance()` — lower = more similar
-5. Auth passes when distance < threshold for 3 consecutive frames
+5. Auth passes when distance < threshold for 3 consecutive frames (counter resets on any single failed frame)
 6. Embedding zeroed from memory immediately after comparison
 
 **Default threshold:** 0.5 (configurable per user in `config.py`)
@@ -208,7 +208,7 @@ CREATE TABLE users (
     windows_username TEXT UNIQUE NOT NULL,
     consent_timestamp TEXT NOT NULL,
     consent_version TEXT NOT NULL,
-    fallback_method TEXT NOT NULL  -- 'pin' | 'windows' | 'none'
+    fallback_method TEXT NOT NULL  -- 'pin' | 'windows' | 'none' (overrides config.py default)
 );
 
 CREATE TABLE embeddings (
@@ -335,7 +335,7 @@ Mode clients retry 3 times with 1s delay if service is not running, then fall ba
 |---|---|
 | Camera not found / disconnected | Service logs error, tray icon turns red, modes trigger fallback |
 | Core service not running | Clients retry 3x/1s, then show fallback prompt |
-| Corrupt / tampered database | Integrity check at startup fails → force re-enrollment, log security event |
+| Corrupt / tampered database | SQLite `PRAGMA integrity_check` runs at startup; failure → force re-enrollment, log security event |
 | DPAPI decryption fails | Auth blocked, error logged — no silent fallback |
 | Recognition timeout (>10s no face) | Falls back to configured fallback |
 | Enrollment with multiple faces | Enrollment rejected — exactly one face required |
