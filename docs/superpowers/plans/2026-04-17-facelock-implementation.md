@@ -1697,25 +1697,40 @@ def run_app_guard(app_path: str):
 
 
 def setup_task_scheduler():
-    """Register core service and startup gate with Windows Task Scheduler."""
-    python_exe = sys.executable
-    script = __file__
+    """Register core service, startup gate, and session locker with Task Scheduler.
 
-    # Core service task
-    subprocess.run([
-        "schtasks", "/create", "/tn", "FaceLock\\CoreService",
-        "/tr", f'"{python_exe}" "{script}" --service',
-        "/sc", "ONLOGON", "/f", "/rl", "HIGHEST"
-    ], check=True)
+    Uses pythonw.exe (no console window) for all background tasks.
+    Flat task names are used — schtasks cannot auto-create subfolders.
+    Tasks run as the current user so Windows DPAPI decryption works correctly.
+    Must be run as Administrator.
+    """
+    from pathlib import Path
 
-    # Startup gate task
-    subprocess.run([
-        "schtasks", "/create", "/tn", "FaceLock\\StartupGate",
-        "/tr", f'"{python_exe}" "{script}" --mode startup',
-        "/sc", "ONLOGON", "/f", "/rl", "HIGHEST"
-    ], check=True)
+    # pythonw.exe runs Python without a console window
+    pythonw_exe = str(Path(sys.executable).parent / "pythonw.exe")
+    script = str(Path(__file__).resolve())
+    username = getpass.getuser()
 
-    print("Task Scheduler entries created for FaceLock.")
+    tasks = [
+        # (task_name, flag, delay)
+        ("FaceLock-CoreService",  "--service",      "00:00:05"),
+        ("FaceLock-StartupGate",  "--mode startup", "00:00:08"),
+        ("FaceLock-SessionLocker","--mode session",  "00:00:10"),
+    ]
+
+    for name, flag, delay in tasks:
+        subprocess.run([
+            "schtasks", "/create",
+            "/tn", name,
+            "/tr", f'"{pythonw_exe}" "{script}" {flag}',
+            "/sc", "ONLOGON",
+            "/ru", username,          # run as current user — required for DPAPI
+            "/delay", delay,          # stagger startup to let session fully initialise
+            "/f",                     # overwrite if exists
+        ], check=True)
+        print(f"  Registered: {name}")
+
+    print("\nTask Scheduler entries created. Verify in taskschd.msc.")
 
 
 def main():
@@ -1772,7 +1787,36 @@ usage: main.py [-h] [--service] [--mode {startup,session,tray}]
                [--guard APP_PATH] [--enroll] [--settings] [--setup]
 ```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Verify `pythonw.exe` exists**
+
+```bash
+facelock_env\Scripts\python -c "
+from pathlib import Path, sys
+pythonw = Path(sys.executable).parent / 'pythonw.exe'
+print('pythonw.exe exists:', pythonw.exists(), '—', pythonw)
+"
+```
+
+Expected: `pythonw.exe exists: True — C:\Users\DELL\Documents\FaceLock\facelock_env\Scripts\pythonw.exe`
+
+- [ ] **Step 4: Test Task Scheduler registration (run as Administrator)**
+
+```bash
+facelock_env\Scripts\python main.py --setup
+```
+
+Expected:
+```
+  Registered: FaceLock-CoreService
+  Registered: FaceLock-StartupGate
+  Registered: FaceLock-SessionLocker
+
+Task Scheduler entries created. Verify in taskschd.msc.
+```
+
+Open `taskschd.msc` and confirm the three tasks appear under Task Scheduler Library.
+
+- [ ] **Step 5: Commit**
 
 ```bash
 git add main.py
