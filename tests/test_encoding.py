@@ -87,3 +87,60 @@ def test_update_last_used_sets_timestamp():
     conn.close()
     assert row["last_used_at"] is not None
     os.unlink(db)
+
+
+# ---------------------------------------------------------------------------
+# Live camera tests — TC1, TC6, TC8 (requires webcam + enrolled face)
+# ---------------------------------------------------------------------------
+
+import cv2
+import numpy as np
+import config
+from modules.face_detector import FaceDetector
+from modules.face_encoder import (
+    extract_embedding, average_embeddings,
+    embedding_to_bytes, bytes_to_embedding, compare_embedding,
+)
+
+
+def _capture_frame() -> np.ndarray:
+    cap = cv2.VideoCapture(0)
+    assert cap.isOpened(), "Webcam not available"
+    for _ in range(5):
+        cap.read()
+    ret, frame = cap.read()
+    cap.release()
+    assert ret, "Could not read frame from webcam"
+    return frame
+
+
+def _capture_embedding() -> np.ndarray:
+    detector = FaceDetector(config.TFLITE_MODEL_PATH)
+    frame = _capture_frame()
+    assert detector.has_exactly_one_face(frame), \
+        "Exactly one face required — ensure only you are in frame"
+    boxes = detector.find_faces(frame)
+    emb = extract_embedding(frame, boxes[0])
+    assert emb is not None, "Embedding extraction failed"
+    return emb
+
+
+def test_tc1_embedding_is_128d():
+    """TC1 — Extracted face embedding is 128-dimensional."""
+    emb = _capture_embedding()
+    assert emb.shape == (128,), f"Expected (128,), got {emb.shape}"
+
+
+def test_tc6_embedding_serialization_roundtrip():
+    """TC6 — Embedding survives bytes serialization roundtrip."""
+    emb = _capture_embedding()
+    restored = bytes_to_embedding(embedding_to_bytes(emb))
+    assert np.allclose(emb, restored), "Roundtrip mismatch"
+
+
+def test_tc8_same_face_matches_within_tolerance():
+    """TC8 — Two embeddings captured seconds apart from the same face match."""
+    emb1 = _capture_embedding()
+    emb2 = _capture_embedding()
+    assert compare_embedding(emb1, emb2, config.DEFAULT_TOLERANCE), \
+        "Same face did not match — check lighting or camera position"
