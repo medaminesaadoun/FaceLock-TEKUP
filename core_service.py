@@ -61,10 +61,10 @@ def _handle_auth(username: str, detector: FaceDetector) -> dict:
                 ret, frame = cap.read()
                 if not ret:
                     continue
-                if not detector.has_exactly_one_face(frame):
+                boxes = detector.find_faces(frame)
+                if len(boxes) != 1:
                     auth.reset()
                     continue
-                boxes = detector.find_faces(frame)
                 live_emb = extract_embedding(frame, boxes[0])
                 if live_emb is None:
                     continue
@@ -89,13 +89,16 @@ def _handle_enroll(username: str, detector: FaceDetector) -> dict:
     with _camera_lock:
         cap = _open_camera()
         try:
+            deadline = time.monotonic() + config.AUTO_LOCK_TIMEOUT_SECONDS
             while len(embeddings) < config.ENROLLMENT_FRAMES:
+                if time.monotonic() > deadline:
+                    return {"ok": False, "reason": "timeout"}
                 ret, frame = cap.read()
                 if not ret:
                     continue
-                if not detector.has_exactly_one_face(frame):
-                    continue
                 boxes = detector.find_faces(frame)
+                if len(boxes) != 1:
+                    continue
                 emb = extract_embedding(frame, boxes[0])
                 if emb is not None:
                     embeddings.append(emb)
@@ -141,6 +144,10 @@ def _handle_client(conn, detector: FaceDetector) -> None:
             send(conn, {"ok": False, "reason": "unknown_cmd"})
     except Exception as exc:
         log.error("client handler error: %s", exc)
+        try:
+            send(conn, {"ok": False, "reason": "internal_error"})
+        except Exception:
+            pass
     finally:
         conn.close()
 

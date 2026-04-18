@@ -12,8 +12,8 @@ TFLITE_MODEL_PATH = str(DATA_DIR / "face_detector.tflite")
 LOG_PATH         = str(LOG_DIR  / "activity.log")
 DPIA_PATH        = str(DOCS_DIR / "DPIA.md")
 
-PIPE_NAME = r"\\.\pipe\facelock_core"
-PIPE_AUTHKEY = b"facelock_pipe_auth_2026"
+PIPE_NAME         = r"\\.\pipe\facelock_core"
+PIPE_AUTHKEY_PATH = str(DATA_DIR / "pipe.key")
 
 DEFAULT_TOLERANCE            = 0.5
 CONSECUTIVE_FRAMES_REQUIRED  = 3

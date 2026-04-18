@@ -5,7 +5,7 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
 import config
-from modules.database import erase_user, add_user, get_user
+from modules.database import erase_user, add_user, get_user, get_connection
 from modules.encryption import secure_wipe
 
 CONSENT_TEXT = """\
@@ -52,7 +52,11 @@ def has_consent(db_path: str, username: str) -> bool:
 
 def erase_user_data(db_path: str, key_path: str, username: str) -> None:
     erase_user(db_path, username)
-    if os.path.exists(key_path):
+    # Only destroy the shared key when no enrolled users remain — wiping it
+    # earlier would permanently lock out other users on this device.
+    with get_connection(db_path) as conn:
+        remaining = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    if remaining == 0 and os.path.exists(key_path):
         secure_wipe(key_path)
 
 

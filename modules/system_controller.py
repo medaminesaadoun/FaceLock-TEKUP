@@ -25,8 +25,8 @@ def _auth(username: str) -> bool:
     return _request({"cmd": "auth", "username": username}).get("ok", False)
 
 
-def _presence(username: str) -> bool:
-    return _request({"cmd": "presence", "username": username}).get("present", False)
+def _presence() -> bool:
+    return _request({"cmd": "presence"}).get("present", False)
 
 
 # ---------------------------------------------------------------------------
@@ -43,7 +43,7 @@ def run_mode_a(poll_interval: float = 1.0) -> None:
     locked = False
     while True:
         if not locked:
-            if not _presence(username):
+            if not _presence():
                 _lock_workstation()
                 locked = True
         else:

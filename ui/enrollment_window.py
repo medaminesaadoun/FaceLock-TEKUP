@@ -4,6 +4,7 @@ from tkinter import ttk, messagebox
 import threading
 import getpass
 
+import bcrypt
 import config
 from modules.gdpr import get_consent_text, record_consent, has_consent
 from modules.ipc import make_client, send, recv
@@ -99,21 +100,13 @@ class EnrollmentWindow(tk.Tk):
     def _commit_consent_and_enroll(self) -> None:
         pin_hash: str | None = None
         if self._fallback.get() == config.FALLBACK_PIN:
-            import bcrypt
             pin = self._pin_var.get().strip()
             if not pin:
                 messagebox.showwarning("PIN required", "Please enter a PIN.")
                 return
             pin_hash = bcrypt.hashpw(pin.encode(), bcrypt.gensalt()).decode()
 
-        if not has_consent(config.DB_PATH, self._username):
-            record_consent(
-                config.DB_PATH,
-                self._username,
-                self._fallback.get(),
-                pin_hash,
-            )
-
+        self._pending_pin_hash = pin_hash
         self._show_enrolling_step()
 
     def _show_enrolling_step(self) -> None:
@@ -142,6 +135,14 @@ class EnrollmentWindow(tk.Tk):
     def _on_enroll_done(self, result: dict) -> None:
         self._progress.stop()
         if result.get("ok"):
+            # Record consent only after face data is successfully stored
+            if not has_consent(config.DB_PATH, self._username):
+                record_consent(
+                    config.DB_PATH,
+                    self._username,
+                    self._fallback.get(),
+                    self._pending_pin_hash,
+                )
             self._show_success_step()
         else:
             reason = result.get("reason", "unknown error")

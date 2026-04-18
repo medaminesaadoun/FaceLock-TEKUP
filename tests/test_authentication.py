@@ -89,13 +89,25 @@ def test_tc2_auth_passes_on_consecutive_matches(detector, enrolled_embedding):
 # ---------------------------------------------------------------------------
 
 def test_tc3_streak_resets_on_no_face(enrolled_embedding):
-    """TC3 — Streak counter resets when no face is detected."""
-    auth = Authenticator(enrolled_embedding)
-    auth._streak = config.CONSECUTIVE_FRAMES_REQUIRED - 1
-    # Feed a blank (black) frame — no face present
-    blank = np.zeros((480, 640, 3), dtype=np.uint8)
+    """TC3 — Streak counter resets to 0 when find_faces returns no boxes."""
     detector = FaceDetector(config.TFLITE_MODEL_PATH)
-    assert not detector.has_exactly_one_face(blank)
+    auth = Authenticator(enrolled_embedding)
+
+    # Build up a partial streak using real live embeddings
+    frames = _capture_frames(config.CONSECUTIVE_FRAMES_REQUIRED - 1)
+    for frame in frames:
+        boxes = detector.find_faces(frame)
+        if len(boxes) == 1:
+            emb = extract_embedding(frame, boxes[0])
+            if emb is not None:
+                auth.feed(emb)
+
+    streak_before = auth.streak
+    assert streak_before > 0, "Could not build a partial streak — check camera"
+
+    # A blank frame has no faces — the auth loop would call auth.reset()
+    blank = np.zeros((480, 640, 3), dtype=np.uint8)
+    assert detector.find_faces(blank) == [], "Blank frame should yield no detections"
     auth.reset()
     assert auth.streak == 0
 
