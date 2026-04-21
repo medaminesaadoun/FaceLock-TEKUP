@@ -121,17 +121,15 @@ def cmd_launch(_args) -> None:
 
     _detached = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
 
-    # Start core service as a detached background process
-    subprocess.Popen(
-        [pythonw, str(here / "core_service.py")],
-        creationflags=_detached,
-    )
+    procs = [
+        subprocess.Popen([pythonw, str(here / "core_service.py")], creationflags=_detached),
+        subprocess.Popen([pythonw, str(here / "main.py"), "mode-a"], creationflags=_detached),
+    ]
 
-    # Start Mode A session locker as a detached background process
-    subprocess.Popen(
-        [pythonw, str(here / "main.py"), "mode-a"],
-        creationflags=_detached,
-    )
+    import json
+    pid_path = here / "data" / "pids.json"
+    pid_path.parent.mkdir(exist_ok=True)
+    pid_path.write_text(json.dumps([p.pid for p in procs]))
 
     # Show enrollment wizard if this user has not consented yet
     if not has_consent(config.DB_PATH, getpass.getuser()):

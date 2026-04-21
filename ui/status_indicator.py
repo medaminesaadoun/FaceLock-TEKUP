@@ -3,6 +3,9 @@ import tkinter as tk
 from tkinter import ttk
 import threading
 import getpass
+import json
+import os
+import signal
 
 from PIL import Image, ImageDraw
 import pystray
@@ -99,7 +102,21 @@ class StatusIndicator:
 
     def _quit(self, icon, item) -> None:
         self._overlay.hide()
+        self._kill_subprocesses()
         icon.stop()
+
+    def _kill_subprocesses(self) -> None:
+        pid_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "pids.json")
+        try:
+            pids = json.loads(open(pid_path).read())
+            for pid in pids:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except (ProcessLookupError, PermissionError):
+                    pass
+            os.remove(pid_path)
+        except (FileNotFoundError, Exception):
+            pass
 
 
 def launch() -> None:
