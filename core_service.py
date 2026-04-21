@@ -131,16 +131,21 @@ def _handle_presence(detector: FaceDetector) -> dict:
             cap.release()
 
 
-def _handle_debug_frame(detector: FaceDetector) -> dict:
+def _handle_debug_stream(conn, detector: FaceDetector) -> None:
+    """Stream frames continuously over a persistent connection until client disconnects."""
     with _camera_lock:
         cap = _open_camera()
         try:
-            ret, frame = cap.read()
-            if not ret:
-                return {"ok": False, "reason": "no_frame"}
-            boxes = detector.find_faces(frame)
-            _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
-            return {"ok": True, "jpeg": buf.tobytes(), "boxes": boxes}
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    continue
+                boxes = detector.find_faces(frame)
+                _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
+                try:
+                    send(conn, {"ok": True, "jpeg": buf.tobytes(), "boxes": boxes})
+                except Exception:
+                    break
         finally:
             cap.release()
 
@@ -156,8 +161,9 @@ def _handle_client(conn, detector: FaceDetector) -> None:
             send(conn, _handle_enroll(conn, username, detector))
         elif cmd == "presence":
             send(conn, _handle_presence(detector))
-        elif cmd == "debug_frame":
-            send(conn, _handle_debug_frame(detector))
+        elif cmd == "debug_stream":
+            _handle_debug_stream(conn, detector)
+            return  # connection already closed inside stream handler
         else:
             send(conn, {"ok": False, "reason": "unknown_cmd"})
     except Exception as exc:

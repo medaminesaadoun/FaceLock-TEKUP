@@ -14,10 +14,10 @@ import numpy as np
 
 import config
 from modules.ipc import make_client, send, recv
-from modules.face_encoder import bytes_to_embedding, compare_embedding
+from modules.face_encoder import bytes_to_embedding, extract_embedding, compare_embedding
+from modules.authenticator import Authenticator
 from modules.database import get_user, get_embedding, initialize
 from modules.encryption import load_key, decrypt
-from modules.authenticator import Authenticator
 
 
 _GREEN  = (0, 220, 0)
@@ -40,11 +40,15 @@ def _load_stored_embedding() -> np.ndarray | None:
         return None
 
 
-def _get_debug_frame() -> dict:
+def _stream_frames():
+    """Open one persistent pipe connection and yield frames until disconnected."""
     conn = make_client()
+    send(conn, {"cmd": "debug_stream"})
     try:
-        send(conn, {"cmd": "debug_frame"})
-        return recv(conn)
+        while True:
+            yield recv(conn)
+    except Exception:
+        pass
     finally:
         conn.close()
 
@@ -63,71 +67,66 @@ def run() -> None:
     auth = Authenticator(stored) if stored is not None else None
 
     print("FaceLock Debug View — press Q to quit")
-    print("(frames fetched from core service — make sure it is running)")
+    print("Connecting to core service...")
 
     prev_time = time.monotonic()
 
-    while True:
-        try:
-            result = _get_debug_frame()
-        except Exception as exc:
-            print(f"Cannot reach core service: {exc}")
-            time.sleep(1)
-            continue
+    try:
+        for result in _stream_frames():
+            if not result.get("ok"):
+                continue
 
-        if not result.get("ok"):
-            continue
+            frame = cv2.imdecode(np.frombuffer(result["jpeg"], np.uint8), cv2.IMREAD_COLOR)
+            boxes = result["boxes"]
+            face_count = len(boxes)
 
-        frame = cv2.imdecode(np.frombuffer(result["jpeg"], np.uint8), cv2.IMREAD_COLOR)
-        boxes = result["boxes"]
-        face_count = len(boxes)
+            now = time.monotonic()
+            fps = 1.0 / max(now - prev_time, 1e-6)
+            prev_time = now
 
-        now = time.monotonic()
-        fps = 1.0 / max(now - prev_time, 1e-6)
-        prev_time = now
+            status_text = "NOT ENROLLED" if stored is None else "NO FACE"
+            status_color = _WHITE
+            distance_text = ""
+            streak_text = ""
 
-        status_text = "NOT ENROLLED" if stored is None else "NO FACE"
-        status_color = _WHITE
-        distance_text = ""
-        streak_text = ""
+            for (x, y, w, h) in boxes:
+                cv2.rectangle(frame, (x, y), (x + w, y + h), _YELLOW, 2)
 
-        for (x, y, w, h) in boxes:
-            cv2.rectangle(frame, (x, y), (x + w, y + h), _YELLOW, 2)
-
-        if face_count == 1 and stored is not None:
-            from modules.face_encoder import extract_embedding
-            emb = extract_embedding(frame, boxes[0])
-            if emb is not None:
-                dist = float(np.linalg.norm(stored - emb))
-                match = dist <= config.DEFAULT_TOLERANCE
-                box_color = _GREEN if match else _RED
-                x, y, w, h = boxes[0]
-                cv2.rectangle(frame, (x, y), (x + w, y + h), box_color, 2)
-
-                granted = auth.feed(emb)
-                status_text = "AUTHENTICATED" if granted else ("MATCH" if match else "NO MATCH")
-                status_color = _GREEN if (match or granted) else _RED
-                distance_text = f"Distance: {dist:.3f}  (threshold: {config.DEFAULT_TOLERANCE})"
-                streak_text = f"Streak: {auth.streak} / {config.CONSECUTIVE_FRAMES_REQUIRED}"
-        elif face_count == 0 and auth:
-            auth.reset()
-        elif face_count > 1:
-            if auth:
+            if face_count == 1 and stored is not None:
+                emb = extract_embedding(frame, boxes[0])
+                if emb is not None:
+                    dist = float(np.linalg.norm(stored - emb))
+                    match = dist <= config.DEFAULT_TOLERANCE
+                    x, y, w, h = boxes[0]
+                    cv2.rectangle(frame, (x, y), (x + w, y + h),
+                                  _GREEN if match else _RED, 2)
+                    granted = auth.feed(emb)
+                    status_text = "AUTHENTICATED" if granted else ("MATCH" if match else "NO MATCH")
+                    status_color = _GREEN if (match or granted) else _RED
+                    distance_text = f"Distance: {dist:.3f}  (threshold: {config.DEFAULT_TOLERANCE})"
+                    streak_text = f"Streak: {auth.streak} / {config.CONSECUTIVE_FRAMES_REQUIRED}"
+            elif face_count == 0 and auth:
                 auth.reset()
-            status_text = f"MULTIPLE FACES ({face_count})"
-            status_color = _YELLOW
+            elif face_count > 1:
+                if auth:
+                    auth.reset()
+                status_text = f"MULTIPLE FACES ({face_count})"
+                status_color = _YELLOW
 
-        h_frame = frame.shape[0]
-        _draw_text(frame, f"FPS: {fps:.1f}", (10, 25), _WHITE, 0.55)
-        _draw_text(frame, f"Faces: {face_count}", (10, 50), _WHITE, 0.55)
-        if distance_text:
-            _draw_text(frame, distance_text, (10, 75), _WHITE, 0.55)
-        if streak_text:
-            _draw_text(frame, streak_text, (10, 100), _WHITE, 0.55)
-        _draw_text(frame, status_text, (10, h_frame - 15), status_color, 0.8)
+            h_frame = frame.shape[0]
+            _draw_text(frame, f"FPS: {fps:.1f}", (10, 25), _WHITE, 0.55)
+            _draw_text(frame, f"Faces: {face_count}", (10, 50), _WHITE, 0.55)
+            if distance_text:
+                _draw_text(frame, distance_text, (10, 75), _WHITE, 0.55)
+            if streak_text:
+                _draw_text(frame, streak_text, (10, 100), _WHITE, 0.55)
+            _draw_text(frame, status_text, (10, h_frame - 15), status_color, 0.8)
 
-        cv2.imshow("FaceLock — Debug View", frame)
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
+            cv2.imshow("FaceLock — Debug View", frame)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+
+    except Exception as exc:
+        print(f"Cannot reach core service: {exc}")
 
     cv2.destroyAllWindows()
