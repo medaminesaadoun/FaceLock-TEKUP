@@ -61,6 +61,7 @@ class StatusIndicator:
     def __init__(self) -> None:
         self._overlay = LockOverlay()
         self._locked = False
+        self._paused = False
         self._icon = pystray.Icon(
             "FaceLock",
             _make_tray_icon("green"),
@@ -69,20 +70,32 @@ class StatusIndicator:
                 pystray.MenuItem("Settings", self._open_settings),
                 pystray.MenuItem("Enroll", self._open_enrollment),
                 pystray.Menu.SEPARATOR,
+                pystray.MenuItem(
+                    lambda item: "Resume" if self._paused else "Pause",
+                    self._toggle_pause,
+                ),
+                pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Quit", self._quit),
             ),
         )
 
     def set_locked(self, locked: bool) -> None:
         self._locked = locked
-        color = "red" if locked else "green"
-        title = "FaceLock — Locked" if locked else "FaceLock — Active"
-        self._icon.icon = _make_tray_icon(color)
-        self._icon.title = title
+        self._refresh_icon()
         if locked:
             self._overlay.show()
         else:
             self._overlay.hide()
+
+    def _refresh_icon(self) -> None:
+        if self._paused:
+            color, title = "yellow", "FaceLock — Paused"
+        elif self._locked:
+            color, title = "red", "FaceLock — Locked"
+        else:
+            color, title = "green", "FaceLock — Active"
+        self._icon.icon = _make_tray_icon(color)
+        self._icon.title = title
 
     def run(self) -> None:
         self._icon.run()
@@ -99,6 +112,20 @@ class StatusIndicator:
     def _open_enrollment(self, icon, item) -> None:
         from ui.enrollment_window import launch as launch_enroll
         threading.Thread(target=launch_enroll, daemon=True).start()
+
+    def _toggle_pause(self, icon, item) -> None:
+        self._paused = not self._paused
+        self._send_ipc({"cmd": "pause" if self._paused else "resume"})
+        self._refresh_icon()
+
+    def _send_ipc(self, msg: dict) -> None:
+        try:
+            conn = make_client()
+            send(conn, msg)
+            recv(conn)
+            conn.close()
+        except Exception:
+            pass
 
     def _quit(self, icon, item) -> None:
         self._overlay.hide()

@@ -26,6 +26,9 @@ log = setup_audit_logger(config.LOG_PATH)
 # Serialises all camera access — only one operation may hold the camera at a time.
 _camera_lock = threading.Lock()
 
+_paused = False
+_paused_lock = threading.Lock()
+
 
 def _open_camera() -> cv2.VideoCapture:
     cap = cv2.VideoCapture(0)
@@ -130,6 +133,9 @@ def _handle_enroll(conn, username: str, detector: FaceDetector) -> dict:
 
 
 def _handle_presence(detector: FaceDetector) -> dict:
+    with _paused_lock:
+        if _paused:
+            return {"present": True}
     with _camera_lock:
         cap = _open_camera()
         try:
@@ -138,6 +144,25 @@ def _handle_presence(detector: FaceDetector) -> dict:
             return {"present": present}
         finally:
             cap.release()
+
+
+def _handle_pause() -> dict:
+    global _paused
+    with _paused_lock:
+        _paused = True
+    return {"ok": True}
+
+
+def _handle_resume() -> dict:
+    global _paused
+    with _paused_lock:
+        _paused = False
+    return {"ok": True}
+
+
+def _handle_status() -> dict:
+    with _paused_lock:
+        return {"paused": _paused}
 
 
 def _handle_debug_stream(conn, detector: FaceDetector) -> None:
@@ -191,6 +216,12 @@ def _handle_client(conn, detector: FaceDetector) -> None:
         elif cmd == "debug_stream":
             _handle_debug_stream(conn, detector)
             return  # connection already closed inside stream handler
+        elif cmd == "pause":
+            send(conn, _handle_pause())
+        elif cmd == "resume":
+            send(conn, _handle_resume())
+        elif cmd == "status":
+            send(conn, _handle_status())
         else:
             send(conn, {"ok": False, "reason": "unknown_cmd"})
     except Exception as exc:
