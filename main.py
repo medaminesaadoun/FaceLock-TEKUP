@@ -106,7 +106,9 @@ def cmd_tray(_args) -> None:
 def cmd_launch(_args) -> None:
     """Default: start core service + tray, show enrollment wizard if needed."""
     import config
+    from modules.database import initialize
     from modules.gdpr import has_consent
+    initialize(config.DB_PATH)
 
     pythonw = _pythonw()
     here = _here()
