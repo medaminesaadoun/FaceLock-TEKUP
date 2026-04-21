@@ -111,6 +111,7 @@ def cmd_debug(_args) -> None:
 
 def cmd_launch(_args) -> None:
     """Default: start core service + tray, show enrollment wizard if needed."""
+    import json
     import config
     from modules.database import initialize
     from modules.gdpr import has_consent
@@ -118,25 +119,31 @@ def cmd_launch(_args) -> None:
 
     pythonw = _pythonw()
     here = _here()
-
     _detached = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
 
-    procs = [
-        subprocess.Popen([pythonw, str(here / "core_service.py")], creationflags=_detached),
-        subprocess.Popen([pythonw, str(here / "main.py"), "mode-a"], creationflags=_detached),
-    ]
+    # Core service must start first — enrollment window needs it for camera access.
+    core_proc = subprocess.Popen(
+        [pythonw, str(here / "core_service.py")], creationflags=_detached
+    )
 
-    import json
-    pid_path = here / "data" / "pids.json"
-    pid_path.parent.mkdir(exist_ok=True)
-    pid_path.write_text(json.dumps([p.pid for p in procs]))
-
-    # Show enrollment wizard if this user has not consented yet
     if not has_consent(config.DB_PATH, getpass.getuser()):
         from ui.enrollment_window import launch as launch_enroll
         launch_enroll()
+        # If user declined, stop the core service and exit cleanly.
+        if not has_consent(config.DB_PATH, getpass.getuser()):
+            core_proc.terminate()
+            return
 
-    # Start tray (blocks until quit)
+    # Consent confirmed — start Mode A and save PIDs.
+    mode_a_proc = subprocess.Popen(
+        [pythonw, str(here / "main.py"), "mode-a"], creationflags=_detached
+    )
+
+    pid_path = here / "data" / "pids.json"
+    pid_path.parent.mkdir(exist_ok=True)
+    pid_path.write_text(json.dumps([core_proc.pid, mode_a_proc.pid]))
+
+    # Start tray (blocks until quit).
     from ui.status_indicator import launch as launch_tray
     launch_tray()
 
