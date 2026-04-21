@@ -18,6 +18,7 @@ from modules.face_encoder import bytes_to_embedding
 from modules.authenticator import Authenticator
 from modules.database import get_user, get_embedding, initialize
 from modules.encryption import load_key, decrypt
+from modules.user_settings import get_tolerance
 
 
 _GREEN  = (0, 220, 0)
@@ -64,7 +65,8 @@ def _draw_text(frame, text: str, pos: tuple, color=_WHITE, scale: float = 0.6) -
 def run() -> None:
     initialize(config.DB_PATH)
     stored = _load_stored_embedding()
-    auth = Authenticator(stored) if stored is not None else None
+    tolerance = get_tolerance(config.SETTINGS_PATH)
+    auth = Authenticator(stored, tolerance) if stored is not None else None
 
     print("FaceLock Debug View — press Q to quit")
     print("Connecting to core service...")
@@ -96,14 +98,14 @@ def run() -> None:
             if face_count == 1 and stored is not None and emb_bytes:
                 emb = bytes_to_embedding(emb_bytes)
                 dist = float(np.linalg.norm(stored - emb))
-                match = dist <= config.DEFAULT_TOLERANCE
+                match = dist <= tolerance
                 x, y, w, h = boxes[0]
                 cv2.rectangle(frame, (x, y), (x + w, y + h),
                               _GREEN if match else _RED, 2)
                 granted = auth.feed(emb)
                 status_text = "AUTHENTICATED" if granted else ("MATCH" if match else "NO MATCH")
                 status_color = _GREEN if (match or granted) else _RED
-                distance_text = f"Distance: {dist:.3f}  (threshold: {config.DEFAULT_TOLERANCE})"
+                distance_text = f"Distance: {dist:.3f}  (threshold: {tolerance})"
                 streak_text = f"Streak: {auth.streak} / {config.CONSECUTIVE_FRAMES_REQUIRED}"
             elif face_count == 0 and auth:
                 auth.reset()

@@ -8,6 +8,7 @@ DOCS_DIR = BASE_DIR / "docs"
 
 DB_PATH          = str(DATA_DIR / "facelock.db")
 KEY_PATH         = str(DATA_DIR / "facelock.key")
+SETTINGS_PATH    = str(DATA_DIR / "settings.json")
 TFLITE_MODEL_PATH = str(DATA_DIR / "face_detector.tflite")
 LOG_PATH         = str(LOG_DIR  / "activity.log")
 DPIA_PATH        = str(DOCS_DIR / "DPIA.md")

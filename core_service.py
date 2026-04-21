@@ -20,6 +20,7 @@ from modules.face_encoder import (
 from modules.authenticator import Authenticator
 from modules.ipc import make_server, send, recv
 from modules.gdpr import setup_audit_logger
+from modules.user_settings import get_tolerance
 
 log = setup_audit_logger(config.LOG_PATH)
 
@@ -54,7 +55,8 @@ def _handle_auth(username: str, detector: FaceDetector) -> dict:
         return {"ok": False, "reason": "not_enrolled"}
 
     user = get_user(config.DB_PATH, username)
-    auth = Authenticator(embedding)
+    tolerance = get_tolerance(config.SETTINGS_PATH)
+    auth = Authenticator(embedding, tolerance)
 
     with _camera_lock:
         cap = _open_camera()
