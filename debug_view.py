@@ -7,7 +7,8 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["GLOG_minloglevel"] = "3"
 
 import cv2
-cv2.setLogLevel(0)
+if hasattr(cv2, "setLogLevel"):
+    cv2.setLogLevel(0)
 
 import numpy as np
 
