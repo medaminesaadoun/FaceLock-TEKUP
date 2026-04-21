@@ -37,15 +37,21 @@ def _lock_workstation() -> None:
     ctypes.windll.user32.LockWorkStation()
 
 
-def run_mode_a(poll_interval: float = 1.0) -> None:
-    """Continuously monitors presence; locks when face absent, unlocks on auth."""
+def run_mode_a(poll_interval: float = 1.0, absence_threshold: int = 5) -> None:
+    """Continuously monitors presence; locks after consecutive absences, unlocks on auth."""
     username = _username()
     locked = False
+    absence_streak = 0
     while True:
         if not locked:
-            if not _presence():
-                _lock_workstation()
-                locked = True
+            if _presence():
+                absence_streak = 0
+            else:
+                absence_streak += 1
+                if absence_streak >= absence_threshold:
+                    _lock_workstation()
+                    locked = True
+                    absence_streak = 0
         else:
             if _auth(username):
                 locked = False
