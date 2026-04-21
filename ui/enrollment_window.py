@@ -2,6 +2,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import threading
+import queue
 import getpass
 
 import bcrypt
@@ -123,14 +124,23 @@ class EnrollmentWindow(tk.Tk):
         self._progress.pack(pady=(0, 8))
         self._progress.start(12)
 
+        self._enroll_queue = queue.Queue()
         threading.Thread(target=self._run_enroll, daemon=True).start()
+        self._poll_enroll_result()
 
     def _run_enroll(self) -> None:
         try:
             result = _enroll_via_pipe(self._username)
         except Exception as exc:
             result = {"ok": False, "reason": str(exc)}
-        self.after(0, self._on_enroll_done, result)
+        self._enroll_queue.put(result)
+
+    def _poll_enroll_result(self) -> None:
+        try:
+            result = self._enroll_queue.get_nowait()
+            self._on_enroll_done(result)
+        except queue.Empty:
+            self.after(100, self._poll_enroll_result)
 
     def _on_enroll_done(self, result: dict) -> None:
         self._progress.stop()
