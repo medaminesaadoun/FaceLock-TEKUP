@@ -114,10 +114,18 @@ def cmd_launch(_args) -> None:
     pythonw = _pythonw()
     here = _here()
 
+    _detached = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+
     # Start core service as a detached background process
     subprocess.Popen(
         [pythonw, str(here / "core_service.py")],
-        creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+        creationflags=_detached,
+    )
+
+    # Start Mode A session locker as a detached background process
+    subprocess.Popen(
+        [pythonw, str(here / "main.py"), "mode-a"],
+        creationflags=_detached,
     )
 
     # Show enrollment wizard if this user has not consented yet
