@@ -7,7 +7,8 @@ from pathlib import Path
 
 
 def _pythonw() -> str:
-    return str(Path(sys.executable).parent / "pythonw.exe")
+    p = Path(sys.executable).parent / "pythonw.exe"
+    return str(p) if p.exists() else sys.executable
 
 
 def _here() -> Path:
