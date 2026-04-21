@@ -6,6 +6,7 @@ import getpass
 
 import config
 from modules.ipc import make_client, send, recv
+from modules.gdpr import has_consent
 
 
 def _username() -> str:
@@ -43,6 +44,11 @@ def run_mode_a(poll_interval: float = 1.0, absence_threshold: int = 5) -> None:
     locked = False
     absence_streak = 0
     while True:
+        if not has_consent(config.DB_PATH, username):
+            absence_streak = 0
+            locked = False
+            time.sleep(poll_interval)
+            continue
         if not locked:
             if _presence():
                 absence_streak = 0
