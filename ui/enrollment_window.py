@@ -7,7 +7,7 @@ import getpass
 
 import bcrypt
 import config
-from modules.gdpr import get_consent_text, record_consent, has_consent
+from modules.gdpr import get_consent_text, record_consent, has_consent, erase_user_data
 from modules.ipc import make_client, send, recv
 
 
@@ -108,6 +108,15 @@ class EnrollmentWindow(tk.Tk):
             pin_hash = bcrypt.hashpw(pin.encode(), bcrypt.gensalt()).decode()
 
         self._pending_pin_hash = pin_hash
+        # Record consent now so the user row exists when core service enrolls.
+        # Rolled back in _on_enroll_done if enrollment fails.
+        if not has_consent(config.DB_PATH, self._username):
+            record_consent(
+                config.DB_PATH,
+                self._username,
+                self._fallback.get(),
+                pin_hash,
+            )
         self._show_enrolling_step()
 
     def _show_enrolling_step(self) -> None:
@@ -145,16 +154,10 @@ class EnrollmentWindow(tk.Tk):
     def _on_enroll_done(self, result: dict) -> None:
         self._progress.stop()
         if result.get("ok"):
-            # Record consent only after face data is successfully stored
-            if not has_consent(config.DB_PATH, self._username):
-                record_consent(
-                    config.DB_PATH,
-                    self._username,
-                    self._fallback.get(),
-                    self._pending_pin_hash,
-                )
             self._show_success_step()
         else:
+            # Roll back consent so the user can retry from a clean state
+            erase_user_data(config.DB_PATH, config.KEY_PATH, self._username)
             reason = result.get("reason", "unknown error")
             messagebox.showerror("Enrollment failed", f"Could not enroll: {reason}")
             self._show_enrolling_step()
