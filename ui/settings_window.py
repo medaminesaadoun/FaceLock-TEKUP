@@ -9,9 +9,9 @@ import config
 from modules.gdpr import erase_user_data, generate_dpia, has_consent
 
 
-class SettingsWindow(tk.Toplevel):
-    def __init__(self, parent: tk.Misc | None = None) -> None:
-        super().__init__(parent)
+class SettingsWindow(tk.Tk):
+    def __init__(self) -> None:
+        super().__init__()
         self.title("FaceLock — Settings")
         self.resizable(False, False)
         self._username = getpass.getuser()
@@ -87,14 +87,10 @@ class SettingsWindow(tk.Toplevel):
             messagebox.showerror("Error", f"Could not open DPIA: {exc}")
 
 
-def launch(parent: tk.Misc | None = None) -> None:
-    win = SettingsWindow(parent)
-    if parent is None:
-        win.mainloop()
+def launch() -> None:
+    win = SettingsWindow()
+    win.mainloop()
 
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    root.withdraw()
-    launch(root)
-    root.mainloop()
+    launch()

@@ -79,7 +79,7 @@ def _handle_auth(username: str, detector: FaceDetector) -> dict:
     return {"ok": False, "reason": "timeout"}
 
 
-def _handle_enroll(username: str, detector: FaceDetector) -> dict:
+def _handle_enroll(conn, username: str, detector: FaceDetector) -> dict:
     user = get_user(config.DB_PATH, username)
     if not user:
         return {"ok": False, "reason": "no_consent"}
@@ -102,6 +102,8 @@ def _handle_enroll(username: str, detector: FaceDetector) -> dict:
                 emb = extract_embedding(frame, boxes[0])
                 if emb is not None:
                     embeddings.append(emb)
+                    send(conn, {"progress": len(embeddings),
+                                "total": config.ENROLLMENT_FRAMES})
         finally:
             cap.release()
 
@@ -137,7 +139,7 @@ def _handle_client(conn, detector: FaceDetector) -> None:
         if cmd == "auth":
             send(conn, _handle_auth(username, detector))
         elif cmd == "enroll":
-            send(conn, _handle_enroll(username, detector))
+            send(conn, _handle_enroll(conn, username, detector))
         elif cmd == "presence":
             send(conn, _handle_presence(detector))
         else:

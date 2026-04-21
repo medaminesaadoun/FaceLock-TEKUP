@@ -11,11 +11,17 @@ from modules.gdpr import get_consent_text, record_consent, has_consent, erase_us
 from modules.ipc import make_client, send, recv
 
 
-def _enroll_via_pipe(username: str) -> dict:
+def _enroll_via_pipe(username: str, progress_cb) -> dict:
+    """Connect to core service, stream progress updates, return final result."""
     conn = make_client()
     try:
         send(conn, {"cmd": "enroll", "username": username})
-        return recv(conn)
+        while True:
+            msg = recv(conn)
+            if "progress" in msg:
+                progress_cb(msg["progress"], msg["total"])
+            else:
+                return msg
     finally:
         conn.close()
 
@@ -128,31 +134,43 @@ class EnrollmentWindow(tk.Tk):
         ttk.Label(self._frame_container, textvariable=self._status_var,
                   font=("Segoe UI", 10)).pack(pady=8)
 
-        self._progress = ttk.Progressbar(self._frame_container, mode="indeterminate",
-                                         length=300)
+        self._progress = ttk.Progressbar(self._frame_container, mode="determinate",
+                                         maximum=config.ENROLLMENT_FRAMES, length=300)
         self._progress.pack(pady=(0, 8))
-        self._progress.start(12)
+
+        self._frame_label = tk.StringVar(value=f"0 / {config.ENROLLMENT_FRAMES} frames captured")
+        ttk.Label(self._frame_container, textvariable=self._frame_label,
+                  font=("Segoe UI", 9), foreground="#555555").pack()
 
         self._enroll_queue = queue.Queue()
         threading.Thread(target=self._run_enroll, daemon=True).start()
         self._poll_enroll_result()
 
+    def _on_progress(self, captured: int, total: int) -> None:
+        self._enroll_queue.put({"progress": captured, "total": total})
+
     def _run_enroll(self) -> None:
         try:
-            result = _enroll_via_pipe(self._username)
+            result = _enroll_via_pipe(self._username, self._on_progress)
         except Exception as exc:
             result = {"ok": False, "reason": str(exc)}
         self._enroll_queue.put(result)
 
     def _poll_enroll_result(self) -> None:
         try:
-            result = self._enroll_queue.get_nowait()
-            self._on_enroll_done(result)
+            msg = self._enroll_queue.get_nowait()
+            if "progress" in msg:
+                captured, total = msg["progress"], msg["total"]
+                self._progress["value"] = captured
+                self._frame_label.set(f"{captured} / {total} frames captured")
+                self._status_var.set("Face detected — hold still…")
+                self.after(100, self._poll_enroll_result)
+            else:
+                self._on_enroll_done(msg)
         except queue.Empty:
             self.after(100, self._poll_enroll_result)
 
     def _on_enroll_done(self, result: dict) -> None:
-        self._progress.stop()
         if result.get("ok"):
             self._show_success_step()
         else:
