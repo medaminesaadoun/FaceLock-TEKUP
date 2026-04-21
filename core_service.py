@@ -88,6 +88,8 @@ def _handle_enroll(conn, username: str, detector: FaceDetector) -> dict:
 
     with _camera_lock:
         cap = _open_camera()
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         try:
             deadline = time.monotonic() + config.AUTO_LOCK_TIMEOUT_SECONDS
             while len(embeddings) < config.ENROLLMENT_FRAMES:
@@ -97,13 +99,20 @@ def _handle_enroll(conn, username: str, detector: FaceDetector) -> dict:
                 if not ret:
                     continue
                 boxes = detector.find_faces(frame)
-                if len(boxes) != 1:
-                    continue
-                emb = extract_embedding(frame, boxes[0])
-                if emb is not None:
-                    embeddings.append(emb)
-                    send(conn, {"progress": len(embeddings),
-                                "total": config.ENROLLMENT_FRAMES})
+                if len(boxes) == 1:
+                    emb = extract_embedding(frame, boxes[0])
+                    if emb is not None:
+                        embeddings.append(emb)
+                _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 50])
+                try:
+                    send(conn, {
+                        "jpeg": buf.tobytes(),
+                        "boxes": boxes,
+                        "progress": len(embeddings),
+                        "total": config.ENROLLMENT_FRAMES,
+                    })
+                except Exception:
+                    return {"ok": False, "reason": "connection_lost"}
         finally:
             cap.release()
 

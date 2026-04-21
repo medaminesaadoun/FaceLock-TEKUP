@@ -1,4 +1,5 @@
 # ui/enrollment_window.py
+import io
 import tkinter as tk
 from tkinter import ttk, messagebox
 import threading
@@ -6,20 +7,25 @@ import queue
 import getpass
 
 import bcrypt
+from PIL import Image, ImageDraw, ImageTk
+
 import config
 from modules.gdpr import get_consent_text, record_consent, has_consent, erase_user_data
 from modules.ipc import make_client, send, recv
 
+_PREVIEW_W = 320
+_PREVIEW_H = 240
 
-def _enroll_via_pipe(username: str, progress_cb) -> dict:
-    """Connect to core service, stream progress updates, return final result."""
+
+def _enroll_via_pipe(username: str, msg_cb) -> dict:
+    """Connect to core service, forward every streaming frame via msg_cb, return final result."""
     conn = make_client()
     try:
         send(conn, {"cmd": "enroll", "username": username})
         while True:
             msg = recv(conn)
-            if "progress" in msg:
-                progress_cb(msg["progress"], msg["total"])
+            if "jpeg" in msg:
+                msg_cb(msg)
             else:
                 return msg
     finally:
@@ -132,11 +138,16 @@ class EnrollmentWindow(tk.Tk):
 
         self._status_var = tk.StringVar(value="Look directly at the camera…")
         ttk.Label(self._frame_container, textvariable=self._status_var,
-                  font=("Segoe UI", 10)).pack(pady=8)
+                  font=("Segoe UI", 10)).pack(pady=(0, 6))
+
+        # Live camera preview
+        self._preview_label = ttk.Label(self._frame_container)
+        self._preview_label.pack(pady=(0, 8))
+        self._photo_ref = None  # prevents GC of current PhotoImage
 
         self._progress = ttk.Progressbar(self._frame_container, mode="determinate",
-                                         maximum=config.ENROLLMENT_FRAMES, length=300)
-        self._progress.pack(pady=(0, 8))
+                                         maximum=config.ENROLLMENT_FRAMES, length=_PREVIEW_W)
+        self._progress.pack(pady=(0, 4))
 
         self._frame_label = tk.StringVar(value=f"0 / {config.ENROLLMENT_FRAMES} frames captured")
         ttk.Label(self._frame_container, textvariable=self._frame_label,
@@ -146,12 +157,9 @@ class EnrollmentWindow(tk.Tk):
         threading.Thread(target=self._run_enroll, daemon=True).start()
         self._poll_enroll_result()
 
-    def _on_progress(self, captured: int, total: int) -> None:
-        self._enroll_queue.put({"progress": captured, "total": total})
-
     def _run_enroll(self) -> None:
         try:
-            result = _enroll_via_pipe(self._username, self._on_progress)
+            result = _enroll_via_pipe(self._username, self._enroll_queue.put)
         except Exception as exc:
             result = {"ok": False, "reason": str(exc)}
         self._enroll_queue.put(result)
@@ -159,16 +167,44 @@ class EnrollmentWindow(tk.Tk):
     def _poll_enroll_result(self) -> None:
         try:
             msg = self._enroll_queue.get_nowait()
-            if "progress" in msg:
-                captured, total = msg["progress"], msg["total"]
-                self._progress["value"] = captured
-                self._frame_label.set(f"{captured} / {total} frames captured")
-                self._status_var.set("Face detected — hold still…")
-                self.after(100, self._poll_enroll_result)
+            if "jpeg" in msg:
+                self._update_preview(msg)
+                self.after(30, self._poll_enroll_result)
             else:
                 self._on_enroll_done(msg)
+                return
         except queue.Empty:
-            self.after(100, self._poll_enroll_result)
+            pass
+        else:
+            return
+        self.after(30, self._poll_enroll_result)
+
+    def _update_preview(self, msg: dict) -> None:
+        img = Image.open(io.BytesIO(msg["jpeg"]))
+        boxes = msg.get("boxes", [])
+        progress = msg["progress"]
+        total = msg["total"]
+
+        if boxes:
+            draw = ImageDraw.Draw(img)
+            color = "#00dd00" if len(boxes) == 1 else "#ffcc00"
+            for (x, y, w, h) in boxes:
+                draw.rectangle([x, y, x + w, y + h], outline=color, width=3)
+
+        img.thumbnail((_PREVIEW_W, _PREVIEW_H))
+        photo = ImageTk.PhotoImage(img)
+        self._preview_label.configure(image=photo)
+        self._photo_ref = photo  # keep reference
+
+        self._progress["value"] = progress
+        self._frame_label.set(f"{progress} / {total} frames captured")
+
+        if len(boxes) == 0:
+            self._status_var.set("No face detected — look at the camera…")
+        elif len(boxes) > 1:
+            self._status_var.set("Multiple faces — ensure only you are visible")
+        else:
+            self._status_var.set("Face detected — hold still…")
 
     def _on_enroll_done(self, result: dict) -> None:
         if result.get("ok"):
