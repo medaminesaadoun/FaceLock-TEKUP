@@ -135,24 +135,32 @@ def _handle_debug_stream(conn, detector: FaceDetector) -> None:
     """Stream frames continuously, including embeddings, over one persistent connection."""
     with _camera_lock:
         cap = _open_camera()
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         try:
+            face_frame_counter = 0
+            last_embedding_bytes = None
             while True:
                 ret, frame = cap.read()
                 if not ret:
                     continue
                 boxes = detector.find_faces(frame)
-                embedding_bytes = None
                 if len(boxes) == 1:
-                    emb = extract_embedding(frame, boxes[0])
-                    if emb is not None:
-                        embedding_bytes = embedding_to_bytes(emb)
-                _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 55])
+                    face_frame_counter += 1
+                    if face_frame_counter % 3 == 0:
+                        emb = extract_embedding(frame, boxes[0])
+                        if emb is not None:
+                            last_embedding_bytes = embedding_to_bytes(emb)
+                else:
+                    face_frame_counter = 0
+                    last_embedding_bytes = None
+                _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 50])
                 try:
                     send(conn, {
                         "ok": True,
                         "jpeg": buf.tobytes(),
                         "boxes": boxes,
-                        "embedding": embedding_bytes,
+                        "embedding": last_embedding_bytes,
                     })
                 except Exception:
                     break
