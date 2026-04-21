@@ -96,8 +96,7 @@ class SettingsWindow(tk.Tk):
     def _view_dpia(self) -> None:
         try:
             generate_dpia(config.DPIA_PATH, self._username)
-            if os.path.exists(config.DPIA_PATH):
-                os.startfile(config.DPIA_PATH)
+            subprocess.Popen(["notepad.exe", config.DPIA_PATH])
         except Exception as exc:
             messagebox.showerror("Error", f"Could not open DPIA: {exc}")
 
