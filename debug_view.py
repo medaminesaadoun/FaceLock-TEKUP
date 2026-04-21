@@ -14,7 +14,7 @@ import numpy as np
 
 import config
 from modules.ipc import make_client, send, recv
-from modules.face_encoder import bytes_to_embedding, extract_embedding, compare_embedding
+from modules.face_encoder import bytes_to_embedding
 from modules.authenticator import Authenticator
 from modules.database import get_user, get_embedding, initialize
 from modules.encryption import load_key, decrypt
@@ -92,19 +92,19 @@ def run() -> None:
             for (x, y, w, h) in boxes:
                 cv2.rectangle(frame, (x, y), (x + w, y + h), _YELLOW, 2)
 
-            if face_count == 1 and stored is not None:
-                emb = extract_embedding(frame, boxes[0])
-                if emb is not None:
-                    dist = float(np.linalg.norm(stored - emb))
-                    match = dist <= config.DEFAULT_TOLERANCE
-                    x, y, w, h = boxes[0]
-                    cv2.rectangle(frame, (x, y), (x + w, y + h),
-                                  _GREEN if match else _RED, 2)
-                    granted = auth.feed(emb)
-                    status_text = "AUTHENTICATED" if granted else ("MATCH" if match else "NO MATCH")
-                    status_color = _GREEN if (match or granted) else _RED
-                    distance_text = f"Distance: {dist:.3f}  (threshold: {config.DEFAULT_TOLERANCE})"
-                    streak_text = f"Streak: {auth.streak} / {config.CONSECUTIVE_FRAMES_REQUIRED}"
+            emb_bytes = result.get("embedding")
+            if face_count == 1 and stored is not None and emb_bytes:
+                emb = bytes_to_embedding(emb_bytes)
+                dist = float(np.linalg.norm(stored - emb))
+                match = dist <= config.DEFAULT_TOLERANCE
+                x, y, w, h = boxes[0]
+                cv2.rectangle(frame, (x, y), (x + w, y + h),
+                              _GREEN if match else _RED, 2)
+                granted = auth.feed(emb)
+                status_text = "AUTHENTICATED" if granted else ("MATCH" if match else "NO MATCH")
+                status_color = _GREEN if (match or granted) else _RED
+                distance_text = f"Distance: {dist:.3f}  (threshold: {config.DEFAULT_TOLERANCE})"
+                streak_text = f"Streak: {auth.streak} / {config.CONSECUTIVE_FRAMES_REQUIRED}"
             elif face_count == 0 and auth:
                 auth.reset()
             elif face_count > 1:

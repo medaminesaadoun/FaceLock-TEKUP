@@ -132,7 +132,7 @@ def _handle_presence(detector: FaceDetector) -> dict:
 
 
 def _handle_debug_stream(conn, detector: FaceDetector) -> None:
-    """Stream frames continuously over a persistent connection until client disconnects."""
+    """Stream frames continuously, including embeddings, over one persistent connection."""
     with _camera_lock:
         cap = _open_camera()
         try:
@@ -141,9 +141,19 @@ def _handle_debug_stream(conn, detector: FaceDetector) -> None:
                 if not ret:
                     continue
                 boxes = detector.find_faces(frame)
-                _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
+                embedding_bytes = None
+                if len(boxes) == 1:
+                    emb = extract_embedding(frame, boxes[0])
+                    if emb is not None:
+                        embedding_bytes = embedding_to_bytes(emb)
+                _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 55])
                 try:
-                    send(conn, {"ok": True, "jpeg": buf.tobytes(), "boxes": boxes})
+                    send(conn, {
+                        "ok": True,
+                        "jpeg": buf.tobytes(),
+                        "boxes": boxes,
+                        "embedding": embedding_bytes,
+                    })
                 except Exception:
                     break
         finally:
