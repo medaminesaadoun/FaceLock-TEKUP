@@ -119,23 +119,23 @@ class StatusIndicator:
         self._icon.stop()
 
     def _patch_menu(self, icon) -> None:
-        # Win32 requires SetForegroundWindow before TrackPopupMenu or the
-        # menu silently fails to appear. Patch whichever internal method
-        # this pystray version uses; skip silently if neither exists.
-        for attr in ("_show_menu", "_display_menu"):
-            original = getattr(icon, attr, None)
-            if original is None:
-                continue
+        try:
+            for attr in ("_show_menu", "_display_menu"):
+                original = getattr(icon, attr, None)
+                if original is None:
+                    continue
 
-            def _patched(orig=original):
-                try:
-                    ctypes.windll.user32.SetForegroundWindow(icon._hwnd)
-                except Exception:
-                    pass
-                orig()
+                def _patched(orig=original):
+                    try:
+                        ctypes.windll.user32.SetForegroundWindow(icon._hwnd)
+                    except Exception:
+                        pass
+                    orig()
 
-            setattr(icon, attr, _patched)
-            return
+                setattr(icon, attr, _patched)
+                return
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
 
