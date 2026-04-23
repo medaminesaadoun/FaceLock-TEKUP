@@ -1,4 +1,5 @@
 # ui/status_indicator.py
+import ctypes
 import tkinter as tk
 from tkinter import ttk
 import threading
@@ -109,10 +110,25 @@ class StatusIndicator:
         self._icon.title = title
 
     def run(self) -> None:
-        self._icon.run()
+        self._icon.run(setup=self._patch_menu)
 
     def stop(self) -> None:
         self._icon.stop()
+
+    def _patch_menu(self, icon) -> None:
+        # Win32 requires SetForegroundWindow before TrackPopupMenu or the
+        # menu silently fails to appear. Patch _show_menu after the icon's
+        # hidden window (icon._hwnd) is created inside icon.run().
+        original = icon._show_menu
+
+        def _patched():
+            try:
+                ctypes.windll.user32.SetForegroundWindow(icon._hwnd)
+            except Exception:
+                pass
+            original()
+
+        icon._show_menu = _patched
 
     # ------------------------------------------------------------------
 
