@@ -44,13 +44,23 @@ class LockOverlay:
         self._root = root
         root.attributes("-fullscreen", True)
         root.attributes("-topmost", True)
-        root.configure(bg="black")
-        ttk.Label(root, text="🔒  FaceLock — Locked",
-                  font=("Segoe UI", 28, "bold"),
-                  foreground="white", background="black").pack(expand=True)
-        ttk.Label(root, text="Look at the camera to unlock",
-                  font=("Segoe UI", 14),
-                  foreground="#aaaaaa", background="black").pack()
+        root.configure(bg="#0d0d0d")
+
+        center = tk.Frame(root, bg="#0d0d0d")
+        center.place(relx=0.5, rely=0.5, anchor="center")
+
+        tk.Label(center, text="🔒", font=("Segoe UI", 64),
+                 bg="#0d0d0d", fg="white").pack(pady=(0, 8))
+        tk.Label(center, text="FaceLock — Locked",
+                 font=("Segoe UI", 32, "bold"),
+                 bg="#0d0d0d", fg="white").pack()
+        tk.Label(center, text="Look at the camera to unlock",
+                 font=("Segoe UI", 16),
+                 bg="#0d0d0d", fg="#888888").pack(pady=(8, 0))
+        tk.Label(center, text="FaceLock  •  GDPR compliant",
+                 font=("Segoe UI", 9),
+                 bg="#0d0d0d", fg="#444444").pack(pady=(32, 0))
+
         root.mainloop()
         self._root = None
 

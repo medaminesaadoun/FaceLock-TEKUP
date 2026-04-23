@@ -12,9 +12,11 @@ from PIL import Image, ImageDraw, ImageTk
 import config
 from modules.gdpr import get_consent_text, record_consent, has_consent, erase_user_data
 from modules.ipc import make_client, send, recv
+from ui._theme import apply as apply_theme, center as center_window
 
 _PREVIEW_W = 320
 _PREVIEW_H = 240
+_STEPS = ["Consent", "Fallback", "Capture"]
 
 
 def _enroll_via_pipe(username: str, msg_cb) -> dict:
@@ -37,12 +39,42 @@ class EnrollmentWindow(tk.Tk):
         super().__init__()
         self.title("FaceLock — Enrollment")
         self.resizable(False, False)
+        apply_theme(self)
         self._username = getpass.getuser()
         self._fallback = tk.StringVar(value=config.DEFAULT_FALLBACK)
         self._pin_var = tk.StringVar()
-        self._frame_container = ttk.Frame(self)
-        self._frame_container.pack(fill="both", expand=True, padx=20, pady=20)
+
+        self._build_chrome()
         self._show_consent_step()
+        center_window(self)
+
+    def _build_chrome(self) -> None:
+        # Step indicator bar at the top
+        bar = tk.Frame(self, bg="#1a73e8", height=4)
+        bar.pack(fill="x")
+
+        step_row = ttk.Frame(self, padding=(20, 10, 20, 0))
+        step_row.pack(fill="x")
+        self._step_labels: list[ttk.Label] = []
+        for i, name in enumerate(_STEPS):
+            if i:
+                ttk.Label(step_row, text="──", foreground="#cccccc").pack(side="left", padx=2)
+            lbl = ttk.Label(step_row, text=f"{i + 1}. {name}")
+            lbl.pack(side="left")
+            self._step_labels.append(lbl)
+
+        ttk.Separator(self, orient="horizontal").pack(fill="x", padx=0, pady=(8, 0))
+        self._frame_container = ttk.Frame(self, padding=20)
+        self._frame_container.pack(fill="both", expand=True)
+
+    def _set_step(self, index: int) -> None:
+        for i, lbl in enumerate(self._step_labels):
+            if i == index:
+                lbl.configure(foreground="#1a73e8", font=("Segoe UI", 9, "bold"))
+            elif i < index:
+                lbl.configure(foreground="#888888", font=("Segoe UI", 9))
+            else:
+                lbl.configure(foreground="#aaaaaa", font=("Segoe UI", 9))
 
     # ------------------------------------------------------------------
     # Step 1 — GDPR consent
@@ -50,11 +82,13 @@ class EnrollmentWindow(tk.Tk):
 
     def _show_consent_step(self) -> None:
         self._clear()
+        self._set_step(0)
         ttk.Label(self._frame_container, text="Data Collection Notice",
-                  font=("Segoe UI", 13, "bold")).pack(anchor="w", pady=(0, 8))
+                  style="Section.TLabel").pack(anchor="w", pady=(0, 8))
 
         text = tk.Text(self._frame_container, width=64, height=14,
-                       wrap="word", state="normal", font=("Consolas", 9))
+                       wrap="word", state="normal", font=("Consolas", 9),
+                       relief="flat", borderwidth=1, background="#f8f8f8")
         text.insert("1.0", get_consent_text())
         text.config(state="disabled")
         text.pack()
@@ -71,10 +105,12 @@ class EnrollmentWindow(tk.Tk):
 
     def _show_fallback_step(self) -> None:
         self._clear()
+        self._set_step(1)
         ttk.Label(self._frame_container, text="Choose a Fallback Method",
-                  font=("Segoe UI", 13, "bold")).pack(anchor="w", pady=(0, 8))
+                  style="Section.TLabel").pack(anchor="w", pady=(0, 4))
         ttk.Label(self._frame_container,
-                  text="Used if face authentication fails:").pack(anchor="w")
+                  text="Used if face authentication fails:",
+                  style="Hint.TLabel").pack(anchor="w", pady=(0, 8))
 
         options = [
             (config.FALLBACK_NONE,    "None — face auth only"),
@@ -83,7 +119,7 @@ class EnrollmentWindow(tk.Tk):
         ]
         for value, label in options:
             ttk.Radiobutton(self._frame_container, text=label,
-                            variable=self._fallback, value=value).pack(anchor="w", pady=2)
+                            variable=self._fallback, value=value).pack(anchor="w", pady=3)
 
         self._pin_frame = ttk.Frame(self._frame_container)
         ttk.Label(self._pin_frame, text="Enter PIN:").pack(side="left")
@@ -120,8 +156,6 @@ class EnrollmentWindow(tk.Tk):
             pin_hash = bcrypt.hashpw(pin.encode(), bcrypt.gensalt()).decode()
 
         self._pending_pin_hash = pin_hash
-        # Record consent now so the user row exists when core service enrolls.
-        # Rolled back in _on_enroll_done if enrollment fails.
         if not has_consent(config.DB_PATH, self._username):
             record_consent(
                 config.DB_PATH,
@@ -133,17 +167,18 @@ class EnrollmentWindow(tk.Tk):
 
     def _show_enrolling_step(self) -> None:
         self._clear()
+        self._set_step(2)
         ttk.Label(self._frame_container, text="Enrolling Your Face",
-                  font=("Segoe UI", 13, "bold")).pack(anchor="w", pady=(0, 8))
+                  style="Section.TLabel").pack(anchor="w", pady=(0, 4))
 
         self._status_var = tk.StringVar(value="Look directly at the camera…")
         ttk.Label(self._frame_container, textvariable=self._status_var,
-                  font=("Segoe UI", 10)).pack(pady=(0, 6))
+                  style="Hint.TLabel").pack(pady=(0, 8))
 
-        # Live camera preview
-        self._preview_label = ttk.Label(self._frame_container)
+        self._preview_label = ttk.Label(self._frame_container,
+                                        relief="flat", borderwidth=0)
         self._preview_label.pack(pady=(0, 8))
-        self._photo_ref = None  # prevents GC of current PhotoImage
+        self._photo_ref = None
 
         self._progress = ttk.Progressbar(self._frame_container, mode="determinate",
                                          maximum=config.ENROLLMENT_FRAMES, length=_PREVIEW_W)
@@ -151,7 +186,7 @@ class EnrollmentWindow(tk.Tk):
 
         self._frame_label = tk.StringVar(value=f"0 / {config.ENROLLMENT_FRAMES} frames captured")
         ttk.Label(self._frame_container, textvariable=self._frame_label,
-                  font=("Segoe UI", 9), foreground="#555555").pack()
+                  style="Hint.TLabel").pack()
 
         self._enroll_queue = queue.Queue()
         threading.Thread(target=self._run_enroll, daemon=True).start()
@@ -194,7 +229,7 @@ class EnrollmentWindow(tk.Tk):
         img.thumbnail((_PREVIEW_W, _PREVIEW_H))
         photo = ImageTk.PhotoImage(img)
         self._preview_label.configure(image=photo)
-        self._photo_ref = photo  # keep reference
+        self._photo_ref = photo
 
         self._progress["value"] = progress
         self._frame_label.set(f"{progress} / {total} frames captured")
@@ -210,7 +245,6 @@ class EnrollmentWindow(tk.Tk):
         if result.get("ok"):
             self._show_success_step()
         else:
-            # Roll back consent so the user can retry from a clean state
             erase_user_data(config.DB_PATH, config.KEY_PATH, self._username)
             reason = result.get("reason", "unknown error")
             messagebox.showerror("Enrollment failed", f"Could not enroll: {reason}")
@@ -218,13 +252,18 @@ class EnrollmentWindow(tk.Tk):
 
     def _show_success_step(self) -> None:
         self._clear()
+        # Highlight all steps as complete
+        for lbl in self._step_labels:
+            lbl.configure(foreground="#1a73e8", font=("Segoe UI", 9, "bold"))
+
         ttk.Label(self._frame_container, text="Enrollment Complete",
-                  font=("Segoe UI", 13, "bold")).pack(pady=(0, 8))
+                  style="Section.TLabel").pack(pady=(20, 8))
         ttk.Label(self._frame_container,
                   text="Your face has been enrolled successfully.\n"
-                       "FaceLock will now protect this device.").pack()
+                       "FaceLock will now protect this device.",
+                  justify="center").pack()
         ttk.Button(self._frame_container, text="Close",
-                   command=self.destroy).pack(pady=(16, 0))
+                   command=self.destroy).pack(pady=(20, 0))
 
     # ------------------------------------------------------------------
     # Helpers
