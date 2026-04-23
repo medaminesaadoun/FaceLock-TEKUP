@@ -226,18 +226,28 @@ class EnrollmentWindow(tk.Tk):
         self._enroll_queue.put(result)
 
     def _poll_enroll_result(self) -> None:
-        try:
-            msg = self._enroll_queue.get_nowait()
+        latest_frame = None
+        final = None
+
+        # Drain everything queued since last tick; keep the newest frame only
+        while True:
+            try:
+                msg = self._enroll_queue.get_nowait()
+            except queue.Empty:
+                break
             if "jpeg" in msg:
-                self._update_preview(msg)
-                self.after(30, self._poll_enroll_result)
+                latest_frame = msg
             else:
-                self._on_enroll_done(msg)
-                return
-        except queue.Empty:
-            pass
-        else:
+                final = msg
+                break
+
+        if latest_frame:
+            self._update_preview(latest_frame)
+
+        if final is not None:
+            self._on_enroll_done(final)
             return
+
         self.after(30, self._poll_enroll_result)
 
     def _update_preview(self, msg: dict) -> None:
