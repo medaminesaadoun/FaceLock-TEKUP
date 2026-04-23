@@ -18,8 +18,8 @@ PIPE_AUTHKEY_PATH = str(DATA_DIR / "pipe.key")
 
 DEFAULT_TOLERANCE            = 0.5
 CONSECUTIVE_FRAMES_REQUIRED  = 3
-ENROLLMENT_FRAMES            = 20
-ENROLLMENT_CAPTURE_INTERVAL  = 0.4   # seconds between accepted captures
+ENROLLMENT_FRAMES            = 30
+ENROLLMENT_CAPTURE_INTERVAL  = 0.6   # seconds between accepted captures
 AUTO_LOCK_TIMEOUT_SECONDS    = 60
 
 FALLBACK_PIN     = "pin"

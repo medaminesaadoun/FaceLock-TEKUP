@@ -21,13 +21,11 @@ _STEPS = ["Consent", "Fallback", "Capture"]
 
 def _pose_prompt(progress: int, total: int) -> str:
     pct = progress / total if total else 0
-    if pct < 0.25:
-        return "Look straight at the camera…"
-    if pct < 0.5:
-        return "Slowly turn your head to the left…"
+    if pct < 0.4:
+        return "Look straight at the camera, blink naturally"
     if pct < 0.75:
-        return "Slowly turn your head to the right…"
-    return "Tilt your head slightly up, then down…"
+        return "Stay still, small movements are fine"
+    return "Almost done, keep looking at the camera"
 
 
 def _check_camera_via_pipe() -> dict:
@@ -208,7 +206,7 @@ class EnrollmentWindow(tk.Tk):
         ttk.Label(self._frame_container, text="Enrolling Your Face",
                   style="Section.TLabel").pack(anchor="w", pady=(0, 4))
 
-        self._status_var = tk.StringVar(value="Look straight at the camera…")
+        self._status_var = tk.StringVar(value="Look straight at the camera, blink naturally")
         ttk.Label(self._frame_container, textvariable=self._status_var,
                   font=("Segoe UI", 10, "bold")).pack(pady=(0, 8))
 
