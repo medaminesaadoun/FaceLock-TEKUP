@@ -73,11 +73,14 @@ class StatusIndicator:
         self._overlay = LockOverlay()
         self._locked = False
         self._paused = False
+        self._dashboard_thread: threading.Thread | None = None
         self._icon = pystray.Icon(
             "FaceLock",
             _make_tray_icon("green"),
             "FaceLock — Active",
             menu=pystray.Menu(
+                pystray.MenuItem("Open Dashboard", self._open_dashboard, default=True),
+                pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Settings", self._open_settings),
                 pystray.MenuItem("Enroll", self._open_enrollment),
                 pystray.MenuItem("Debug View", self._open_debug),
@@ -132,17 +135,49 @@ class StatusIndicator:
 
     # ------------------------------------------------------------------
 
-    def _open_settings(self, icon, item) -> None:
+    def _open_dashboard(self, icon=None, item=None) -> None:
+        if self._dashboard_thread and self._dashboard_thread.is_alive():
+            return
+        from ui.dashboard import launch as launch_dashboard
+        self._dashboard_thread = threading.Thread(
+            target=launch_dashboard,
+            args=(
+                self._locked, self._paused,
+                self._toggle_pause_from_dashboard,
+                lambda: self._quit(self._icon, None),
+                lambda: threading.Thread(target=self._do_open_settings, daemon=True).start(),
+                lambda: threading.Thread(target=self._do_open_enroll, daemon=True).start(),
+                lambda: threading.Thread(target=self._do_open_debug, daemon=True).start(),
+            ),
+            daemon=True,
+        )
+        self._dashboard_thread.start()
+
+    def _toggle_pause_from_dashboard(self) -> None:
+        self._paused = not self._paused
+        self._send_ipc({"cmd": "pause" if self._paused else "resume"})
+        self._refresh_icon()
+
+    def _do_open_settings(self) -> None:
         from ui.settings_window import launch as launch_settings
-        threading.Thread(target=launch_settings, daemon=True).start()
+        launch_settings()
+
+    def _do_open_enroll(self) -> None:
+        from ui.enrollment_window import launch as launch_enroll
+        launch_enroll()
+
+    def _do_open_debug(self) -> None:
+        from debug_view import run as run_debug
+        run_debug()
+
+    def _open_settings(self, icon, item) -> None:
+        threading.Thread(target=self._do_open_settings, daemon=True).start()
 
     def _open_enrollment(self, icon, item) -> None:
-        from ui.enrollment_window import launch as launch_enroll
-        threading.Thread(target=launch_enroll, daemon=True).start()
+        threading.Thread(target=self._do_open_enroll, daemon=True).start()
 
     def _open_debug(self, icon, item) -> None:
-        from debug_view import run as run_debug
-        threading.Thread(target=run_debug, daemon=True).start()
+        threading.Thread(target=self._do_open_debug, daemon=True).start()
 
     def _toggle_pause(self, icon, item) -> None:
         self._paused = not self._paused
