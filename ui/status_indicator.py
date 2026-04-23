@@ -79,6 +79,7 @@ class StatusIndicator:
             menu=pystray.Menu(
                 pystray.MenuItem("Settings", self._open_settings),
                 pystray.MenuItem("Enroll", self._open_enrollment),
+                pystray.MenuItem("Debug View", self._open_debug),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem(
                     lambda item: "Resume" if self._paused else "Pause",
@@ -122,6 +123,10 @@ class StatusIndicator:
     def _open_enrollment(self, icon, item) -> None:
         from ui.enrollment_window import launch as launch_enroll
         threading.Thread(target=launch_enroll, daemon=True).start()
+
+    def _open_debug(self, icon, item) -> None:
+        from debug_view import run as run_debug
+        threading.Thread(target=run_debug, daemon=True).start()
 
     def _toggle_pause(self, icon, item) -> None:
         self._paused = not self._paused
