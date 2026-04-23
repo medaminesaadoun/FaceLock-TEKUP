@@ -134,6 +134,19 @@ def _handle_enroll(conn, username: str, detector: FaceDetector) -> dict:
     return {"ok": True}
 
 
+def _handle_check_camera() -> dict:
+    with _camera_lock:
+        try:
+            cap = _open_camera()
+            ret, _ = cap.read()
+            cap.release()
+            if not ret:
+                return {"ok": False, "reason": "Camera opened but could not read a frame"}
+            return {"ok": True}
+        except RuntimeError as exc:
+            return {"ok": False, "reason": str(exc)}
+
+
 def _handle_presence(detector: FaceDetector) -> dict:
     with _paused_lock:
         if _paused:
@@ -218,6 +231,8 @@ def _handle_client(conn, detector: FaceDetector) -> None:
         elif cmd == "debug_stream":
             _handle_debug_stream(conn, detector)
             return  # connection already closed inside stream handler
+        elif cmd == "check_camera":
+            send(conn, _handle_check_camera())
         elif cmd == "pause":
             send(conn, _handle_pause())
         elif cmd == "resume":

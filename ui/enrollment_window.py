@@ -19,6 +19,15 @@ _PREVIEW_H = 240
 _STEPS = ["Consent", "Fallback", "Capture"]
 
 
+def _check_camera_via_pipe() -> dict:
+    conn = make_client()
+    try:
+        send(conn, {"cmd": "check_camera"})
+        return recv(conn)
+    finally:
+        conn.close()
+
+
 def _enroll_via_pipe(username: str, msg_cb) -> dict:
     """Connect to core service, forward every streaming frame via msg_cb, return final result."""
     conn = make_client()
@@ -156,6 +165,23 @@ class EnrollmentWindow(tk.Tk):
             pin_hash = bcrypt.hashpw(pin.encode(), bcrypt.gensalt()).decode()
 
         self._pending_pin_hash = pin_hash
+        try:
+            result = _check_camera_via_pipe()
+        except Exception:
+            messagebox.showerror(
+                "Camera unavailable",
+                "Could not reach the FaceLock service.\n"
+                "Make sure the core service is running and try again.",
+            )
+            return
+        if not result.get("ok"):
+            messagebox.showerror(
+                "Camera unavailable",
+                f"Cannot access the webcam:\n{result.get('reason', 'unknown error')}\n\n"
+                "Check that no other application is using the camera.",
+            )
+            return
+
         if not has_consent(config.DB_PATH, self._username):
             record_consent(
                 config.DB_PATH,
