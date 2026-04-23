@@ -6,6 +6,27 @@ import sys
 from pathlib import Path
 
 
+def _bind_job_object(*procs) -> None:
+    """Attach child processes to a Job Object so they die with this process."""
+    try:
+        import win32job, win32api, win32con, pywintypes
+        job = win32job.CreateJobObject(None, "")
+        info = win32job.QueryInformationJobObject(
+            job, win32job.JobObjectExtendedLimitInformation)
+        info["BasicLimitInformation"]["LimitFlags"] |= (
+            win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE)
+        win32job.SetInformationJobObject(
+            job, win32job.JobObjectExtendedLimitInformation, info)
+        for proc in procs:
+            handle = win32api.OpenProcess(
+                win32con.PROCESS_ALL_ACCESS, False, proc.pid)
+            win32job.AssignProcessToJobObject(job, handle)
+        # Keep the job handle alive for the lifetime of this process.
+        _bind_job_object._job = job
+    except Exception:
+        pass  # Non-fatal: fall back to PID-file cleanup via tray Quit
+
+
 def _pythonw() -> str:
     p = Path(sys.executable).parent / "pythonw.exe"
     return str(p) if p.exists() else sys.executable
@@ -143,26 +164,9 @@ def cmd_launch(_args) -> None:
     pid_path.parent.mkdir(exist_ok=True)
     pid_path.write_text(json.dumps([core_proc.pid, mode_a_proc.pid]))
 
-    # Kill subprocesses on any exit (normal, crash, or Ctrl-C).
-    import atexit, signal as _signal
-
-    def _cleanup():
-        for p in (core_proc, mode_a_proc):
-            try:
-                p.terminate()
-            except Exception:
-                pass
-        try:
-            pid_path.unlink(missing_ok=True)
-        except Exception:
-            pass
-
-    atexit.register(_cleanup)
-    for sig in (_signal.SIGTERM, _signal.SIGINT):
-        try:
-            _signal.signal(sig, lambda *_: (_cleanup(), sys.exit(0)))
-        except Exception:
-            pass
+    # Bind child processes to a Windows Job Object so they are killed
+    # automatically when this process exits for ANY reason (crash, abort, etc.)
+    _bind_job_object(core_proc, mode_a_proc)
 
     # Start tray (blocks until quit).
     from ui.status_indicator import launch as launch_tray

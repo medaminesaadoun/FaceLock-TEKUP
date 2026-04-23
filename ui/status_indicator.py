@@ -1,4 +1,5 @@
 # ui/status_indicator.py
+import subprocess
 import tkinter as tk
 from tkinter import ttk
 import threading
@@ -151,8 +152,10 @@ class StatusIndicator:
         launch_enroll()
 
     def _do_open_debug(self) -> None:
-        from debug_view import run as run_debug
-        run_debug()
+        import sys
+        from pathlib import Path
+        main_py = Path(__file__).parent.parent / "main.py"
+        subprocess.Popen([sys.executable, str(main_py), "debug"])
 
     def _open_settings(self, icon, item) -> None:
         threading.Thread(target=self._do_open_settings, daemon=True).start()
