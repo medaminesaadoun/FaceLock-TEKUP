@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import getpass
 import subprocess
+import threading
 import os
 
 import config
@@ -93,6 +94,13 @@ class SettingsWindow(tk.Tk):
             anchor="w", pady=(8, 2))
         ttk.Separator(parent, orient="horizontal").pack(fill="x", pady=(0, 8))
 
+    def destroy(self) -> None:
+        # Nullify tk.Variable refs before Tcl teardown so their __del__
+        # doesn't fire in the GC thread and corrupt the interpreter.
+        self._tol_var = None
+        self._tol_display = None
+        super().destroy()
+
     def _on_slider_move(self, _=None) -> None:
         self._tol_display.set(f"{self._tol_var.get():.2f}")
 
@@ -106,7 +114,7 @@ class SettingsWindow(tk.Tk):
     def _re_enroll(self) -> None:
         from ui.enrollment_window import launch as launch_enroll
         self.destroy()
-        launch_enroll()
+        threading.Thread(target=launch_enroll, daemon=True).start()
 
     def _delete_data(self) -> None:
         if not messagebox.askyesno(

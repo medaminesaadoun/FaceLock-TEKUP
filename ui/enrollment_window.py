@@ -322,6 +322,11 @@ class EnrollmentWindow(tk.Tk):
     # Helpers
     # ------------------------------------------------------------------
 
+    def destroy(self) -> None:
+        for attr in ("_fallback", "_pin_var", "_status_var", "_frame_label", "_pct_var", "_tol_var"):
+            setattr(self, attr, None)
+        super().destroy()
+
     def _clear(self) -> None:
         for widget in self._frame_container.winfo_children():
             widget.destroy()
