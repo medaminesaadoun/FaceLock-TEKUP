@@ -97,6 +97,7 @@ def _handle_enroll(conn, username: str, detector: FaceDetector) -> dict:
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         try:
             deadline = time.monotonic() + config.AUTO_LOCK_TIMEOUT_SECONDS
+            last_capture = 0.0
             while len(embeddings) < config.ENROLLMENT_FRAMES:
                 if time.monotonic() > deadline:
                     return {"ok": False, "reason": "timeout"}
@@ -105,9 +106,12 @@ def _handle_enroll(conn, username: str, detector: FaceDetector) -> dict:
                     continue
                 boxes = detector.find_faces(frame)
                 if len(boxes) == 1:
-                    emb = extract_embedding(frame, boxes[0])
-                    if emb is not None:
-                        embeddings.append(emb)
+                    now = time.monotonic()
+                    if now - last_capture >= config.ENROLLMENT_CAPTURE_INTERVAL:
+                        emb = extract_embedding(frame, boxes[0])
+                        if emb is not None:
+                            embeddings.append(emb)
+                            last_capture = now
                 _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 50])
                 try:
                     send(conn, {
