@@ -19,6 +19,17 @@ _PREVIEW_H = 240
 _STEPS = ["Consent", "Fallback", "Capture"]
 
 
+def _pose_prompt(progress: int, total: int) -> str:
+    pct = progress / total if total else 0
+    if pct < 0.25:
+        return "Look straight at the camera…"
+    if pct < 0.5:
+        return "Slowly turn your head to the left…"
+    if pct < 0.75:
+        return "Slowly turn your head to the right…"
+    return "Tilt your head slightly up, then down…"
+
+
 def _check_camera_via_pipe() -> dict:
     conn = make_client()
     try:
@@ -197,9 +208,9 @@ class EnrollmentWindow(tk.Tk):
         ttk.Label(self._frame_container, text="Enrolling Your Face",
                   style="Section.TLabel").pack(anchor="w", pady=(0, 4))
 
-        self._status_var = tk.StringVar(value="Look directly at the camera…")
+        self._status_var = tk.StringVar(value="Look straight at the camera…")
         ttk.Label(self._frame_container, textvariable=self._status_var,
-                  style="Hint.TLabel").pack(pady=(0, 8))
+                  font=("Segoe UI", 10, "bold")).pack(pady=(0, 8))
 
         self._preview_label = ttk.Label(self._frame_container,
                                         relief="flat", borderwidth=0)
@@ -275,7 +286,7 @@ class EnrollmentWindow(tk.Tk):
         elif len(boxes) > 1:
             self._status_var.set("Multiple faces — ensure only you are visible")
         else:
-            self._status_var.set("Face detected — hold still…")
+            self._status_var.set(_pose_prompt(progress, total))
 
     def _on_enroll_done(self, result: dict) -> None:
         if result.get("ok"):
