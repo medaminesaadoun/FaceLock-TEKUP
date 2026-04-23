@@ -215,9 +215,15 @@ class EnrollmentWindow(tk.Tk):
         self._preview_label.pack(pady=(0, 8))
         self._photo_ref = None
 
-        self._progress = ttk.Progressbar(self._frame_container, mode="determinate",
-                                         maximum=config.ENROLLMENT_FRAMES, length=_PREVIEW_W)
-        self._progress.pack(pady=(0, 4))
+        prog_row = ttk.Frame(self._frame_container)
+        prog_row.pack(fill="x", pady=(0, 4))
+        self._progress = ttk.Progressbar(prog_row, mode="determinate",
+                                         maximum=config.ENROLLMENT_FRAMES,
+                                         length=_PREVIEW_W - 48)
+        self._progress.pack(side="left")
+        self._pct_var = tk.StringVar(value="0%")
+        ttk.Label(prog_row, textvariable=self._pct_var,
+                  font=("Segoe UI", 9, "bold"), width=5).pack(side="left", padx=(6, 0))
 
         self._frame_label = tk.StringVar(value=f"0 / {config.ENROLLMENT_FRAMES} frames captured")
         ttk.Label(self._frame_container, textvariable=self._frame_label,
@@ -277,6 +283,8 @@ class EnrollmentWindow(tk.Tk):
         self._photo_ref = photo
 
         self._progress["value"] = progress
+        pct = int(progress / total * 100) if total else 0
+        self._pct_var.set(f"{pct}%")
         self._frame_label.set(f"{progress} / {total} frames captured")
 
         if len(boxes) == 0:
@@ -317,6 +325,7 @@ class EnrollmentWindow(tk.Tk):
     def _clear(self) -> None:
         for widget in self._frame_container.winfo_children():
             widget.destroy()
+        self.geometry("")  # let tkinter recalculate window size for new content
 
 
 def launch() -> None:
