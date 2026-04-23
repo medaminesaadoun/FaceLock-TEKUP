@@ -143,6 +143,27 @@ def cmd_launch(_args) -> None:
     pid_path.parent.mkdir(exist_ok=True)
     pid_path.write_text(json.dumps([core_proc.pid, mode_a_proc.pid]))
 
+    # Kill subprocesses on any exit (normal, crash, or Ctrl-C).
+    import atexit, signal as _signal
+
+    def _cleanup():
+        for p in (core_proc, mode_a_proc):
+            try:
+                p.terminate()
+            except Exception:
+                pass
+        try:
+            pid_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    atexit.register(_cleanup)
+    for sig in (_signal.SIGTERM, _signal.SIGINT):
+        try:
+            _signal.signal(sig, lambda *_: (_cleanup(), sys.exit(0)))
+        except Exception:
+            pass
+
     # Start tray (blocks until quit).
     from ui.status_indicator import launch as launch_tray
     launch_tray()
