@@ -68,6 +68,11 @@ def _handle_auth(username: str, detector: FaceDetector) -> dict:
         try:
             deadline = time.monotonic() + config.AUTO_LOCK_TIMEOUT_SECONDS
             while time.monotonic() < deadline:
+                # Abort early if the lock was cleared externally (e.g. PIN auth
+                # succeeded while this face auth loop was still running).
+                with _locked_lock:
+                    if not _locked:
+                        return {"ok": False, "reason": "cancelled"}
                 ret, frame = cap.read()
                 if not ret:
                     time.sleep(0.1)
