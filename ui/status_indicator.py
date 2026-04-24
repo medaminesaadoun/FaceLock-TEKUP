@@ -65,6 +65,26 @@ class LockOverlay:
         root.attributes("-topmost", True)
         root.configure(bg="#0d0d0d")
 
+        # Remove window decorations — eliminates title bar, taskbar entry,
+        # and the WM_CLOSE message that Alt+F4 sends.
+        root.overrideredirect(True)
+
+        # Intercept common escape shortcuts and swallow them.
+        for seq in ("<Alt-F4>", "<Escape>", "<Alt-Tab>", "<Super_L>", "<Super_R>"):
+            root.bind(seq, lambda e: "break")
+
+        # Prevent the OS from deleting the window via standard close requests.
+        root.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        # Periodically re-raise and refocus to fight off any window that tries
+        # to come to the foreground (e.g. notifications, other apps).
+        def _keep_on_top() -> None:
+            if self._root:
+                root.lift()
+                root.focus_force()
+                root.after(500, _keep_on_top)
+        root.after(500, _keep_on_top)
+
         center = tk.Frame(root, bg="#0d0d0d")
         center.place(relx=0.5, rely=0.5, anchor="center")
 
