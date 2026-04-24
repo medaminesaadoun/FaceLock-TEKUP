@@ -105,8 +105,15 @@ class LockOverlay:
 
         if hidden_mode:
             # Disguise as Windows lock screen — no FaceLock branding visible.
-            self._build_hidden_ui(root, username, has_pin, pin_hash)
-        else:
+            # Fall back to normal mode if anything goes wrong building the UI.
+            try:
+                self._build_hidden_ui(root, username, has_pin, pin_hash)
+            except Exception as e:
+                import logging
+                logging.getLogger("facelock.audit").error(
+                    "hidden mode UI failed, falling back: %s", e)
+                hidden_mode = False
+        if not hidden_mode:
             # Standard FaceLock overlay with branding and visible status.
             root.configure(bg="#0d0d0d")
             center = tk.Frame(root, bg="#0d0d0d")
@@ -210,16 +217,21 @@ class LockOverlay:
         self._dot_var = None
 
     @staticmethod
-    def _load_lock_screen_image(w: int, h: int):
-        """Try to find and return the Windows lock screen image as a PhotoImage.
+    def _load_lock_screen_image(w: int, h: int) -> bytes | None:
+        """Try to find the Windows lock screen image and return it as PNG bytes.
 
-        Checks Windows Spotlight assets first (most common on Win10/11),
-        then falls back to the registry lock image path, then default Windows
-        wallpapers. Returns None if nothing usable is found.
+        Returns raw PNG bytes rather than ImageTk.PhotoImage to avoid PIL's
+        Tk bridge, which has global state that causes Tcl_AsyncDelete crashes
+        when used across threads. The caller creates tk.PhotoImage(data=b64)
+        instead, which is fully bound to the local Tcl interpreter.
+
+        Checks Windows Spotlight assets, registry lock image path, then
+        default Windows wallpapers. Returns None if nothing usable is found.
         """
         import glob
+        import io
         import winreg
-        from PIL import ImageFilter, ImageEnhance, ImageTk
+        from PIL import ImageFilter, ImageEnhance
 
         candidates: list[str] = []
 
@@ -232,11 +244,13 @@ class LockOverlay:
             r"\LocalState\Assets"
         )
         if os.path.isdir(spotlight_dir):
-            files = [
-                (os.path.getsize(f), f)
-                for f in glob.glob(os.path.join(spotlight_dir, "*"))
-                if os.path.isfile(f) and os.path.getsize(f) > 200_000
-            ]
+            files = []
+            for f in glob.glob(os.path.join(spotlight_dir, "*")):
+                try:
+                    if os.path.isfile(f) and os.path.getsize(f) > 200_000:
+                        files.append((os.path.getsize(f), f))
+                except OSError:
+                    continue
             files.sort(reverse=True)
             candidates.extend(f for _, f in files[:5])
 
@@ -271,7 +285,11 @@ class LockOverlay:
                 # Darken and slightly blur to match Windows lock screen look.
                 img = ImageEnhance.Brightness(img).enhance(0.45)
                 img = img.filter(ImageFilter.GaussianBlur(radius=4))
-                return ImageTk.PhotoImage(img)
+                # Return raw PNG bytes — caller uses tk.PhotoImage(data=b64)
+                # to avoid PIL's Tk bridge and its threading issues.
+                buf = io.BytesIO()
+                img.save(buf, format="PNG", compress_level=1)
+                return buf.getvalue()
             except Exception:
                 continue
 
@@ -293,10 +311,16 @@ class LockOverlay:
         canvas.pack(fill="both", expand=True)
 
         # Try to use the real Windows lock screen image as background.
-        bg_img = self._load_lock_screen_image(w, h)
-        if bg_img:
-            canvas.create_image(0, 0, anchor="nw", image=bg_img)
-            canvas._bg_img = bg_img  # hold reference to prevent GC
+        # Use tk.PhotoImage(data=b64) — not ImageTk.PhotoImage — so the image
+        # is bound to this thread's Tcl interpreter and avoids PIL's global
+        # Tk bridge which causes Tcl_AsyncDelete crashes across threads.
+        raw_png = self._load_lock_screen_image(w, h)
+        if raw_png:
+            import base64
+            b64 = base64.b64encode(raw_png).decode("ascii")
+            bg_photo = tk.PhotoImage(master=root, data=b64)
+            canvas.create_image(0, 0, anchor="nw", image=bg_photo)
+            canvas._bg_photo = bg_photo  # hold reference to prevent GC
 
         # Clock text drawn directly on canvas — no background color conflict.
         cy = int(h * 0.38)
@@ -321,8 +345,7 @@ class LockOverlay:
         if has_pin:
             # PIN frame embedded in the canvas via create_window so it floats
             # over the background image correctly.
-            pin_frame = tk.Frame(canvas, bg="#1e1e2e")
-            pin_frame.configure(padx=20, pady=16)
+            pin_frame = tk.Frame(canvas, bg="#1e1e2e", padx=20, pady=16)
 
             tk.Label(pin_frame, text=username,
                      font=("Segoe UI", 12), bg="#1e1e2e", fg="#bbbbbb").pack()
