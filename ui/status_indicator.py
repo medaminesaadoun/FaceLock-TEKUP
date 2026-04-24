@@ -92,12 +92,14 @@ class LockOverlay:
         # Prevent the OS from deleting the window via standard close requests.
         root.protocol("WM_DELETE_WINDOW", lambda: None)
 
-        # Periodically re-raise and refocus to fight off any window that tries
-        # to come to the foreground (e.g. notifications, other apps).
+        # Periodically re-raise to fight off windows trying to come to the
+        # foreground. Only steal keyboard focus if no child widget has it —
+        # calling focus_force() unconditionally breaks PIN entry fields.
         def _keep_on_top() -> None:
             if self._root:
                 root.lift()
-                root.focus_force()
+                if root.focus_get() in (None, root):
+                    root.focus_force()
                 root.after(500, _keep_on_top)
         root.after(500, _keep_on_top)
 
@@ -207,51 +209,127 @@ class LockOverlay:
         self._status_var = None
         self._dot_var = None
 
+    @staticmethod
+    def _load_lock_screen_image(w: int, h: int):
+        """Try to find and return the Windows lock screen image as a PhotoImage.
+
+        Checks Windows Spotlight assets first (most common on Win10/11),
+        then falls back to the registry lock image path, then default Windows
+        wallpapers. Returns None if nothing usable is found.
+        """
+        import glob
+        import winreg
+        from PIL import ImageFilter, ImageEnhance, ImageTk
+
+        candidates: list[str] = []
+
+        # Windows Spotlight stores lock screen images without file extensions
+        # in the ContentDeliveryManager assets folder. The largest files are
+        # the landscape lock screen images (usually > 200 KB).
+        spotlight_dir = os.path.expandvars(
+            r"%LOCALAPPDATA%\Packages"
+            r"\Microsoft.Windows.ContentDeliveryManager_cw5n1h2txyewy"
+            r"\LocalState\Assets"
+        )
+        if os.path.isdir(spotlight_dir):
+            files = [
+                (os.path.getsize(f), f)
+                for f in glob.glob(os.path.join(spotlight_dir, "*"))
+                if os.path.isfile(f) and os.path.getsize(f) > 200_000
+            ]
+            files.sort(reverse=True)
+            candidates.extend(f for _, f in files[:5])
+
+        # Registry key for custom lock screen wallpaper.
+        try:
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"SOFTWARE\Microsoft\Windows\CurrentVersion\Lock Screen\Creative",
+            )
+            path, _ = winreg.QueryValueEx(key, "LockImagePath")
+            if os.path.isfile(path):
+                candidates.insert(0, path)
+        except Exception:
+            pass
+
+        # Default Windows lock screen images.
+        for path in [
+            r"C:\Windows\Web\Screen\img100.jpg",
+            r"C:\Windows\Web\Screen\img104.jpg",
+            r"C:\Windows\Web\4K\Wallpaper\Windows\img0_1920x1200.jpg",
+        ]:
+            if os.path.isfile(path):
+                candidates.append(path)
+
+        for path in candidates:
+            try:
+                img = Image.open(path).convert("RGB")
+                # Skip files that aren't real images (e.g. metadata blobs).
+                if img.width < 400 or img.height < 300:
+                    continue
+                img = img.resize((w, h), Image.LANCZOS)
+                # Darken and slightly blur to match Windows lock screen look.
+                img = ImageEnhance.Brightness(img).enhance(0.45)
+                img = img.filter(ImageFilter.GaussianBlur(radius=4))
+                return ImageTk.PhotoImage(img)
+            except Exception:
+                continue
+
+        return None
+
     def _build_hidden_ui(self, root: tk.Tk, username: str,
                          has_pin: bool, pin_hash: str | None) -> None:
         """Renders a Windows lock screen clone — clock, date, optional PIN entry.
 
-        No FaceLock branding is shown. Face auth runs silently in the background.
-        PIN entry appears when the user starts typing, mirroring Windows behavior.
+        Uses a Canvas so text and widgets render cleanly over the background
+        image without needing transparent widget backgrounds (tkinter limitation).
+        Face auth runs silently. PIN entry appears on first keypress.
         """
-        bg = "#1a1a2e"  # dark blue-black matching Windows lock screen tone
-        root.configure(bg=bg)
+        w = root.winfo_screenwidth()
+        h = root.winfo_screenheight()
 
-        # Center content slightly above middle, like the real Windows lock screen.
-        center = tk.Frame(root, bg=bg)
-        center.place(relx=0.5, rely=0.42, anchor="center")
+        # Canvas fills the entire screen — all content is drawn on it.
+        canvas = tk.Canvas(root, bg="#1a1a2e", highlightthickness=0)
+        canvas.pack(fill="both", expand=True)
 
-        # Large clock — updated every second.
-        time_var = tk.StringVar(master=root)
-        tk.Label(center, textvariable=time_var,
-                 font=("Segoe UI Light", 80), bg=bg, fg="white").pack()
+        # Try to use the real Windows lock screen image as background.
+        bg_img = self._load_lock_screen_image(w, h)
+        if bg_img:
+            canvas.create_image(0, 0, anchor="nw", image=bg_img)
+            canvas._bg_img = bg_img  # hold reference to prevent GC
 
-        # Date line below the clock.
-        date_var = tk.StringVar(master=root)
-        tk.Label(center, textvariable=date_var,
-                 font=("Segoe UI Light", 22), bg=bg, fg="white").pack(pady=(0, 48))
+        # Clock text drawn directly on canvas — no background color conflict.
+        cy = int(h * 0.38)
+        time_id = canvas.create_text(
+            w // 2, cy, text="00:00",
+            font=("Segoe UI Light", 80), fill="white", anchor="center")
+        date_id = canvas.create_text(
+            w // 2, cy + 96, text="",
+            font=("Segoe UI Light", 22), fill="white", anchor="center")
 
         def _update_clock() -> None:
-            # Refresh time and date every second via tkinter's event loop.
+            # Refresh clock every second via tkinter's event loop.
             if not self._root:
                 return
             now = datetime.now()
-            time_var.set(now.strftime("%H:%M"))
-            date_var.set(now.strftime("%A, %B %d"))
+            canvas.itemconfig(time_id, text=now.strftime("%H:%M"))
+            canvas.itemconfig(date_id, text=now.strftime("%A, %B %d"))
             root.after(1000, _update_clock)
 
         _update_clock()
 
         if has_pin:
-            # PIN area — hidden until user starts typing, like Windows Hello.
-            pin_area = tk.Frame(center, bg=bg)
+            # PIN frame embedded in the canvas via create_window so it floats
+            # over the background image correctly.
+            pin_frame = tk.Frame(canvas, bg="#1e1e2e")
+            pin_frame.configure(padx=20, pady=16)
 
-            tk.Label(pin_area, text=username,
-                     font=("Segoe UI", 13), bg=bg, fg="#cccccc").pack()
+            tk.Label(pin_frame, text=username,
+                     font=("Segoe UI", 12), bg="#1e1e2e", fg="#bbbbbb").pack()
 
             pin_var = tk.StringVar(master=root)
             pin_entry = tk.Entry(
-                pin_area, textvariable=pin_var, show="●",
+                pin_frame, textvariable=pin_var, show="●",
                 font=("Segoe UI", 18), width=14,
                 bg="#2c2c3e", fg="white", insertbackground="white",
                 relief="flat", justify="center",
@@ -259,17 +337,21 @@ class LockOverlay:
             pin_entry.pack(pady=(10, 4), ipady=6)
 
             pin_status_var = tk.StringVar(master=root, value="")
-            tk.Label(pin_area, textvariable=pin_status_var,
-                     font=("Segoe UI", 9), bg=bg, fg="#ff6666").pack()
+            tk.Label(pin_frame, textvariable=pin_status_var,
+                     font=("Segoe UI", 9), bg="#1e1e2e", fg="#ff6666").pack()
 
-            # Arrow submit button styled like Windows.
             tk.Button(
-                pin_area, text="→",
+                pin_frame, text="→",
                 font=("Segoe UI", 16), bg="#3a3a5c", fg="white",
                 relief="flat", cursor="hand2", width=3,
                 activebackground="#4a4a6c", activeforeground="white",
                 command=lambda: _check_pin(),
-            ).pack(pady=(6, 0))
+            ).pack(pady=(8, 0))
+
+            # Create the PIN window hidden — revealed on first keypress.
+            pin_window = canvas.create_window(
+                w // 2, int(h * 0.62),
+                window=pin_frame, anchor="center", state="hidden")
 
             def _check_pin() -> None:
                 entered = pin_var.get().encode()
@@ -287,19 +369,18 @@ class LockOverlay:
                     pin_var.set("")
 
             def _reveal_pin(e=None) -> None:
-                # Show PIN area on first keypress — mirrors Windows behavior.
-                # Unbind so repeated keypresses don't re-trigger.
+                # Reveal PIN entry on first keypress — mirrors Windows Hello.
                 root.unbind("<KeyPress>")
-                pin_area.pack()
+                canvas.itemconfig(pin_window, state="normal")
                 pin_entry.focus_set()
 
             root.bind("<KeyPress>", _reveal_pin)
             root.bind("<Return>", lambda e: _check_pin())
 
-        # Tiny blue dot in the bottom-right — only visible cue that auth is running.
-        # Subtle enough that a tailgater wouldn't notice it.
-        tk.Label(root, text="●", font=("Segoe UI", 8),
-                 bg=bg, fg="#1a73e8").place(relx=0.985, rely=0.985, anchor="se")
+        # Tiny indicator dot — only visible cue that face auth is running.
+        canvas.create_text(
+            w - 10, h - 10, text="●",
+            font=("Segoe UI", 8), fill="#1a73e8", anchor="se")
 
     def _animate_dot(self) -> None:
         # Advance the dot frame and reschedule — runs on the tkinter thread.
