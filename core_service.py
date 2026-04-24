@@ -66,11 +66,12 @@ def _handle_auth(username: str, detector: FaceDetector) -> dict:
                 ret, frame = cap.read()
                 if not ret:
                     continue
-                boxes = detector.find_faces(frame)
+                small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+                boxes = detector.find_faces(small)
                 if len(boxes) != 1:
                     auth.reset()
                     continue
-                live_emb = extract_embedding(frame, boxes[0])
+                live_emb = extract_embedding(small, boxes[0])
                 if live_emb is None:
                     continue
                 if auth.feed(live_emb):
@@ -104,11 +105,13 @@ def _handle_enroll(conn, username: str, detector: FaceDetector) -> dict:
                 ret, frame = cap.read()
                 if not ret:
                     continue
-                boxes = detector.find_faces(frame)
-                if len(boxes) == 1:
+                small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+                boxes_small = detector.find_faces(small)
+                boxes = [(x*2, y*2, w*2, h*2) for x, y, w, h in boxes_small]
+                if len(boxes_small) == 1:
                     now = time.monotonic()
                     if now - last_capture >= config.ENROLLMENT_CAPTURE_INTERVAL:
-                        emb = extract_embedding(frame, boxes[0])
+                        emb = extract_embedding(small, boxes_small[0])
                         if emb is not None:
                             embeddings.append(emb)
                             last_capture = now
@@ -159,7 +162,11 @@ def _handle_presence(detector: FaceDetector) -> dict:
         cap = _open_camera()
         try:
             ret, frame = cap.read()
-            present = ret and detector.has_exactly_one_face(frame)
+            if ret:
+                small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+                present = detector.has_exactly_one_face(small)
+            else:
+                present = False
             return {"present": present}
         finally:
             cap.release()
@@ -193,15 +200,23 @@ def _handle_debug_stream(conn, detector: FaceDetector) -> None:
         try:
             face_frame_counter = 0
             last_embedding_bytes = None
+            _frame_interval = 1.0 / 15
+            _last_frame_time = 0.0
             while True:
                 ret, frame = cap.read()
                 if not ret:
                     continue
-                boxes = detector.find_faces(frame)
-                if len(boxes) == 1:
+                now = time.monotonic()
+                if now - _last_frame_time < _frame_interval:
+                    continue
+                _last_frame_time = now
+                small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+                boxes_small = detector.find_faces(small)
+                boxes = [(x*2, y*2, w*2, h*2) for x, y, w, h in boxes_small]
+                if len(boxes_small) == 1:
                     face_frame_counter += 1
                     if face_frame_counter % 3 == 0:
-                        emb = extract_embedding(frame, boxes[0])
+                        emb = extract_embedding(small, boxes_small[0])
                         if emb is not None:
                             last_embedding_bytes = embedding_to_bytes(emb)
                 else:
