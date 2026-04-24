@@ -38,22 +38,32 @@ def _lock_workstation() -> None:
     ctypes.windll.user32.LockWorkStation()
 
 
-# How long to attempt face auth via overlay before falling back to Windows lock.
-# Two full auth cycles (AUTO_LOCK_TIMEOUT_SECONDS = 60) plus a small buffer.
-_FACE_AUTH_TIMEOUT = 120
+def run_mode_a(poll_interval: float = 1.0) -> None:
+    """Monitors presence; shows overlay lock on absence, falls back to Windows lock on timeout.
 
+    All timing values are read from user settings each iteration so changes
+    in the Settings window take effect without restarting the app.
+    """
+    from modules.user_settings import load as load_settings
 
-def run_mode_a(poll_interval: float = 1.0, absence_threshold: int = 5) -> None:
-    """Monitors presence; shows overlay lock on absence, falls back to Windows lock on timeout."""
     username = _username()
     absence_streak = 0
-    lock_time: float | None = None  # when we sent the lock command, None if not locked
+    lock_time: float | None = None       # monotonic timestamp when lock was sent
+    grace_until: float | None = None     # monotonic timestamp when grace period ends
+    prev_locked = False                  # previous locked state for transition detection
 
     while True:
+        # Re-read settings each cycle so UI changes apply immediately.
+        settings = load_settings(config.SETTINGS_PATH)
+        lock_timeout = int(settings.get("lock_timeout", 5))
+        unlock_grace = float(settings.get("unlock_grace", 10))
+        auth_fallback_timeout = float(settings.get("auth_fallback_timeout", 120))
+
         # Skip monitoring entirely if user hasn't consented.
         if not has_consent(config.DB_PATH, username):
             absence_streak = 0
             lock_time = None
+            grace_until = None
             time.sleep(poll_interval)
             continue
 
@@ -63,30 +73,40 @@ def run_mode_a(poll_interval: float = 1.0, absence_threshold: int = 5) -> None:
         locked = status.get("locked", False)
 
         if not locked:
-            # Reset lock timer if the overlay successfully unlocked.
-            lock_time = None
-            # Monitor presence to detect when user leaves.
-            if _presence():
+            if prev_locked:
+                # Unlock transition detected — start grace period so the user
+                # isn't immediately re-locked before settling back at their desk.
+                grace_until = time.monotonic() + unlock_grace
+                lock_time = None
                 absence_streak = 0
+
+            if grace_until and time.monotonic() < grace_until:
+                # Grace period active — skip presence monitoring.
+                pass
             else:
-                absence_streak += 1
-                if absence_streak >= absence_threshold:
-                    from modules.notifications import notify
-                    notify("FaceLock — Locked",
-                           "No face detected. Look at the camera to unlock.")
-                    # Signal core service to lock — tray will show the overlay.
-                    _request({"cmd": "lock"})
-                    lock_time = time.monotonic()
+                grace_until = None
+                # Monitor presence to detect when user leaves.
+                if _presence():
                     absence_streak = 0
+                else:
+                    absence_streak += 1
+                    if absence_streak >= lock_timeout:
+                        from modules.notifications import notify
+                        notify("FaceLock — Locked",
+                               "No face detected. Look at the camera to unlock.")
+                        # Signal core service to lock — tray will show overlay.
+                        _request({"cmd": "lock"})
+                        lock_time = time.monotonic()
+                        absence_streak = 0
         else:
-            # Locked: check if the face auth timeout has expired.
-            # If so, fall back to Windows lock screen as a hard fallback.
-            if lock_time and time.monotonic() - lock_time > _FACE_AUTH_TIMEOUT:
+            # Locked: fall back to Windows lock if face auth takes too long.
+            if lock_time and time.monotonic() - lock_time > auth_fallback_timeout:
                 _lock_workstation()
                 # Clean up lock state so the tray stops showing the overlay.
                 _request({"cmd": "unlock"})
                 lock_time = None
 
+        prev_locked = locked
         time.sleep(poll_interval)
 
 

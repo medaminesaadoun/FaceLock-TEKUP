@@ -72,6 +72,46 @@ class SettingsWindow(tk.Tk):
         ttk.Label(val_row, text="  (lower rejects more faces)",
                   style="Hint.TLabel").pack(side="left")
 
+        # ---- Locking Behaviour ----
+        self._section(outer, "Locking Behaviour")
+
+        def _int_slider(parent, label, key, from_, to, unit="s") -> tk.IntVar:
+            """Helper that builds a labelled integer slider and returns its var."""
+            var = tk.IntVar(master=self, value=int(self._settings.get(key, 0)))
+            row = ttk.Frame(parent)
+            row.pack(fill="x", pady=(0, 2))
+            ttk.Label(row, text=label, width=28).pack(side="left")
+            ttk.Scale(row, from_=from_, to=to, variable=var,
+                      orient="horizontal", length=140,
+                      command=lambda _: var.set(int(var.get()))
+                      ).pack(side="left", padx=6)
+            disp = tk.StringVar(master=self,
+                                value=f"{var.get()} {unit}")
+            ttk.Label(row, textvariable=disp,
+                      font=("Segoe UI", 9, "bold"), width=7).pack(side="left")
+            # Keep display label in sync with slider.
+            var.trace_add("write",
+                lambda *_: disp.set(f"{var.get()} {unit}"))
+            self._slider_vars.append((key, var, disp))
+            return var
+
+        # Initialise the list that _save_and_close will iterate.
+        if not hasattr(self, "_slider_vars"):
+            self._slider_vars = []
+
+        _int_slider(outer, "Lock timeout",
+                    "lock_timeout", 3, 30, "s")
+        _int_slider(outer, "Unlock grace period",
+                    "unlock_grace", 0, 60, "s")
+        _int_slider(outer, "Auth fallback timeout",
+                    "auth_fallback_timeout", 30, 300, "s")
+
+        ttk.Label(outer,
+                  text="Lock timeout: seconds without a face before locking.\n"
+                       "Grace period: cooldown after unlock before monitoring resumes.\n"
+                       "Auth fallback: overlay duration before Windows lock activates.",
+                  style="Hint.TLabel").pack(anchor="w", pady=(2, 10))
+
         # ---- Lock Overlay ----
         self._section(outer, "Lock Overlay")
 
@@ -135,6 +175,9 @@ class SettingsWindow(tk.Tk):
         self._tol_var = None
         self._tol_display = None
         self._hidden_mode_var = None
+        for _, var, disp in getattr(self, "_slider_vars", []):
+            var._name = None  # type: ignore[attr-defined]
+        self._slider_vars = []
         super().destroy()
 
     def _on_slider_move(self, _=None) -> None:
@@ -145,6 +188,9 @@ class SettingsWindow(tk.Tk):
     def _save_and_close(self) -> None:
         self._settings["tolerance"] = round(self._tol_var.get(), 2)
         self._settings["hidden_mode"] = bool(self._hidden_mode_var.get())
+        # Save all integer sliders from the Locking Behaviour section.
+        for key, var, _ in getattr(self, "_slider_vars", []):
+            self._settings[key] = int(var.get())
         save_settings(config.SETTINGS_PATH, self._settings)
         self.destroy()
 
