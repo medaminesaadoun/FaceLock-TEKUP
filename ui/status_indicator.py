@@ -9,10 +9,12 @@ import os
 import signal
 import time
 
+import bcrypt
 from PIL import Image, ImageDraw
 import pystray
 
 import config
+from modules.database import get_user
 from modules.ipc import make_client, send, recv
 
 
@@ -106,6 +108,80 @@ class LockOverlay:
         tk.Label(center, textvariable=self._dot_var,
                  font=("Segoe UI", 14),
                  bg="#0d0d0d", fg="#1a73e8").pack(pady=(8, 0))
+
+        # Show PIN fallback option only if the user enrolled with a PIN.
+        user = get_user(config.DB_PATH, username)
+        has_pin = (
+            user is not None
+            and user.get("fallback_method") == config.FALLBACK_PIN
+            and user.get("pin_hash")
+        )
+
+        if has_pin:
+            pin_hash: str = user["pin_hash"]
+
+            # Divider above the PIN option.
+            tk.Label(center, text="─" * 24,
+                     bg="#0d0d0d", fg="#333333",
+                     font=("Segoe UI", 9)).pack(pady=(20, 4))
+
+            # "Use PIN instead" button — hidden once clicked.
+            use_pin_btn = tk.Button(
+                center, text="Use PIN instead",
+                font=("Segoe UI", 10), bg="#0d0d0d", fg="#666666",
+                relief="flat", cursor="hand2",
+                activebackground="#0d0d0d", activeforeground="white",
+            )
+            use_pin_btn.pack()
+
+            # PIN entry row + error label — hidden until button is clicked.
+            pin_frame = tk.Frame(center, bg="#0d0d0d")
+            pin_var = tk.StringVar(master=root)
+            pin_status_var = tk.StringVar(master=root, value="")
+
+            tk.Entry(pin_frame, textvariable=pin_var, show="*",
+                     font=("Segoe UI", 14), width=10,
+                     bg="#1a1a1a", fg="white", insertbackground="white",
+                     relief="flat").pack(side="left", padx=(0, 8))
+
+            tk.Button(
+                pin_frame, text="Unlock",
+                font=("Segoe UI", 10), bg="#1a73e8", fg="white",
+                relief="flat", cursor="hand2",
+                activebackground="#1558b0", activeforeground="white",
+                command=lambda: _check_pin(),
+            ).pack(side="left")
+
+            tk.Label(center, textvariable=pin_status_var,
+                     font=("Segoe UI", 9),
+                     bg="#0d0d0d", fg="#cc4444").pack()
+
+            def _show_pin_entry() -> None:
+                # Swap the button for the entry field.
+                use_pin_btn.pack_forget()
+                pin_frame.pack(pady=(4, 0))
+
+            def _check_pin() -> None:
+                entered = pin_var.get().encode()
+                if bcrypt.checkpw(entered, pin_hash.encode()):
+                    # PIN correct — unlock core service and close overlay.
+                    try:
+                        c = make_client()
+                        send(c, {"cmd": "unlock"})
+                        recv(c)
+                        c.close()
+                    except Exception:
+                        pass
+                    root.after(0, root.destroy)
+                else:
+                    pin_status_var.set("Incorrect PIN — try again")
+                    pin_var.set("")
+
+            # Wire the button after the callbacks are defined.
+            use_pin_btn.configure(command=_show_pin_entry)
+
+            # Allow Enter key to submit the PIN.
+            root.bind("<Return>", lambda e: _check_pin())
 
         tk.Label(center, text="FaceLock  •  GDPR compliant",
                  font=("Segoe UI", 9),
