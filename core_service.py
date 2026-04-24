@@ -62,10 +62,16 @@ def _handle_auth(username: str, detector: FaceDetector) -> dict:
         cap = _open_camera()
         try:
             deadline = time.monotonic() + config.AUTO_LOCK_TIMEOUT_SECONDS
+            _frame_interval = 1.0 / 8
+            _last_frame_time = 0.0
             while time.monotonic() < deadline:
                 ret, frame = cap.read()
                 if not ret:
                     continue
+                now = time.monotonic()
+                if now - _last_frame_time < _frame_interval:
+                    continue
+                _last_frame_time = now
                 small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
                 boxes = detector.find_faces(small)
                 if len(boxes) != 1:
