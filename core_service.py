@@ -30,6 +30,11 @@ _camera_lock = threading.Lock()
 _paused = False
 _paused_lock = threading.Lock()
 
+# Tracks whether the overlay lock is active — set by Mode A via IPC,
+# read by the tray polling thread to show/hide the lock overlay.
+_locked = False
+_locked_lock = threading.Lock()
+
 
 def _open_camera() -> cv2.VideoCapture:
     cap = cv2.VideoCapture(0)
@@ -190,9 +195,29 @@ def _handle_resume() -> dict:
     return {"ok": True}
 
 
+def _handle_lock() -> dict:
+    # Called by Mode A when absence is detected — signals tray to show overlay.
+    global _locked
+    with _locked_lock:
+        _locked = True
+    return {"ok": True}
+
+
+def _handle_unlock() -> dict:
+    # Called by the overlay after successful face auth, or by Mode A on timeout cleanup.
+    global _locked
+    with _locked_lock:
+        _locked = False
+    return {"ok": True}
+
+
 def _handle_status() -> dict:
+    # Returns both paused and locked state so the tray can sync both in one poll.
     with _paused_lock:
-        return {"paused": _paused}
+        paused = _paused
+    with _locked_lock:
+        locked = _locked
+    return {"paused": paused, "locked": locked}
 
 
 def _handle_debug_stream(conn, detector: FaceDetector) -> None:
@@ -256,6 +281,10 @@ def _handle_client(conn, detector: FaceDetector) -> None:
             send(conn, _handle_pause())
         elif cmd == "resume":
             send(conn, _handle_resume())
+        elif cmd == "lock":
+            send(conn, _handle_lock())
+        elif cmd == "unlock":
+            send(conn, _handle_unlock())
         elif cmd == "status":
             send(conn, _handle_status())
         else:
