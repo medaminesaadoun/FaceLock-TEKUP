@@ -4,10 +4,11 @@ import os
 
 _DEFAULTS: dict = {
     "tolerance": 0.5,
-    "hidden_mode": False,       # when True, overlay mimics Windows lock screen
-    "lock_timeout": 5,          # seconds without a face before locking
-    "unlock_grace": 10,         # seconds after unlock before monitoring resumes
-    "auth_fallback_timeout": 120,  # seconds of face auth before Windows lock
+    "hidden_mode": False,          # when True, overlay mimics Windows lock screen
+    "lock_timeout": 5,             # seconds without a face before locking
+    "unlock_grace": 10,            # seconds after unlock before monitoring resumes
+    "auth_fallback_timeout": 60,   # seconds of face auth before Windows lock
+    "settings_mode": "simple",     # "simple" shows presets, "advanced" shows sliders
 }
 
 
