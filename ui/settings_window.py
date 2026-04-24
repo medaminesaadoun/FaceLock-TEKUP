@@ -71,6 +71,17 @@ class SettingsWindow(tk.Tk):
         ttk.Label(val_row, text="  (lower rejects more faces)",
                   style="Hint.TLabel").pack(side="left")
 
+        # ---- Lock Overlay ----
+        self._section(outer, "Lock Overlay")
+
+        self._hidden_mode_var = tk.BooleanVar(
+            master=self, value=self._settings.get("hidden_mode", False))
+        ttk.Checkbutton(
+            outer,
+            text="Hidden mode — disguise overlay as Windows lock screen",
+            variable=self._hidden_mode_var,
+        ).pack(anchor="w", pady=(0, 8))
+
         # ---- Privacy & GDPR ----
         self._section(outer, "Privacy & GDPR")
         gdpr_row = ttk.Frame(outer)
@@ -99,6 +110,7 @@ class SettingsWindow(tk.Tk):
         # doesn't fire in the GC thread and corrupt the interpreter.
         self._tol_var = None
         self._tol_display = None
+        self._hidden_mode_var = None
         super().destroy()
 
     def _on_slider_move(self, _=None) -> None:
@@ -108,6 +120,7 @@ class SettingsWindow(tk.Tk):
 
     def _save_and_close(self) -> None:
         self._settings["tolerance"] = round(self._tol_var.get(), 2)
+        self._settings["hidden_mode"] = bool(self._hidden_mode_var.get())
         save_settings(config.SETTINGS_PATH, self._settings)
         self.destroy()
 

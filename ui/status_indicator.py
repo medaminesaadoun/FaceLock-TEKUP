@@ -8,6 +8,7 @@ import json
 import os
 import signal
 import time
+from datetime import datetime
 
 import bcrypt
 from PIL import Image, ImageDraw
@@ -61,11 +62,24 @@ class LockOverlay:
             self._root = None
 
     def _run(self, username: str) -> None:
+        from modules.user_settings import load as load_settings
+
+        # Fetch PIN info and hidden mode setting before building UI.
+        settings = load_settings(config.SETTINGS_PATH)
+        hidden_mode = settings.get("hidden_mode", False)
+
+        user = get_user(config.DB_PATH, username)
+        has_pin = (
+            user is not None
+            and user.get("fallback_method") == config.FALLBACK_PIN
+            and user.get("pin_hash")
+        )
+        pin_hash: str | None = user["pin_hash"] if has_pin else None
+
         root = tk.Tk()
         self._root = root
         root.attributes("-fullscreen", True)
         root.attributes("-topmost", True)
-        root.configure(bg="#0d0d0d")
 
         # Remove window decorations — eliminates title bar, taskbar entry,
         # and the WM_CLOSE message that Alt+F4 sends.
@@ -87,84 +101,179 @@ class LockOverlay:
                 root.after(500, _keep_on_top)
         root.after(500, _keep_on_top)
 
-        center = tk.Frame(root, bg="#0d0d0d")
-        center.place(relx=0.5, rely=0.5, anchor="center")
+        if hidden_mode:
+            # Disguise as Windows lock screen — no FaceLock branding visible.
+            self._build_hidden_ui(root, username, has_pin, pin_hash)
+        else:
+            # Standard FaceLock overlay with branding and visible status.
+            root.configure(bg="#0d0d0d")
+            center = tk.Frame(root, bg="#0d0d0d")
+            center.place(relx=0.5, rely=0.5, anchor="center")
 
-        tk.Label(center, text="🔒", font=("Segoe UI", 64),
-                 bg="#0d0d0d", fg="white").pack(pady=(0, 8))
-        tk.Label(center, text="FaceLock — Locked",
-                 font=("Segoe UI", 32, "bold"),
-                 bg="#0d0d0d", fg="white").pack()
+            tk.Label(center, text="🔒", font=("Segoe UI", 64),
+                     bg="#0d0d0d", fg="white").pack(pady=(0, 8))
+            tk.Label(center, text="FaceLock — Locked",
+                     font=("Segoe UI", 32, "bold"),
+                     bg="#0d0d0d", fg="white").pack()
 
-        # Status text updated live by the auth loop thread.
-        self._status_var = tk.StringVar(
-            master=root, value="Look at the camera to unlock")
-        tk.Label(center, textvariable=self._status_var,
-                 font=("Segoe UI", 16),
-                 bg="#0d0d0d", fg="#888888").pack(pady=(8, 0))
+            # Status text updated live by the auth loop thread.
+            self._status_var = tk.StringVar(
+                master=root, value="Look at the camera to unlock")
+            tk.Label(center, textvariable=self._status_var,
+                     font=("Segoe UI", 16),
+                     bg="#0d0d0d", fg="#888888").pack(pady=(8, 0))
 
-        # Animated scanning dots driven by _animate_dot().
-        self._dot_var = tk.StringVar(master=root, value="●○○")
-        tk.Label(center, textvariable=self._dot_var,
-                 font=("Segoe UI", 14),
-                 bg="#0d0d0d", fg="#1a73e8").pack(pady=(8, 0))
+            # Animated scanning dots driven by _animate_dot().
+            self._dot_var = tk.StringVar(master=root, value="●○○")
+            tk.Label(center, textvariable=self._dot_var,
+                     font=("Segoe UI", 14),
+                     bg="#0d0d0d", fg="#1a73e8").pack(pady=(8, 0))
 
-        # Show PIN fallback option only if the user enrolled with a PIN.
-        user = get_user(config.DB_PATH, username)
-        has_pin = (
-            user is not None
-            and user.get("fallback_method") == config.FALLBACK_PIN
-            and user.get("pin_hash")
-        )
+            if has_pin:
+                # Divider above the PIN option.
+                tk.Label(center, text="─" * 24,
+                         bg="#0d0d0d", fg="#333333",
+                         font=("Segoe UI", 9)).pack(pady=(20, 4))
+
+                # "Use PIN instead" button — hidden once clicked.
+                use_pin_btn = tk.Button(
+                    center, text="Use PIN instead",
+                    font=("Segoe UI", 10), bg="#0d0d0d", fg="#666666",
+                    relief="flat", cursor="hand2",
+                    activebackground="#0d0d0d", activeforeground="white",
+                )
+                use_pin_btn.pack()
+
+                # PIN entry row + error label — hidden until button is clicked.
+                pin_frame = tk.Frame(center, bg="#0d0d0d")
+                pin_var = tk.StringVar(master=root)
+                pin_status_var = tk.StringVar(master=root, value="")
+
+                tk.Entry(pin_frame, textvariable=pin_var, show="*",
+                         font=("Segoe UI", 14), width=10,
+                         bg="#1a1a1a", fg="white", insertbackground="white",
+                         relief="flat").pack(side="left", padx=(0, 8))
+
+                tk.Button(
+                    pin_frame, text="Unlock",
+                    font=("Segoe UI", 10), bg="#1a73e8", fg="white",
+                    relief="flat", cursor="hand2",
+                    activebackground="#1558b0", activeforeground="white",
+                    command=lambda: _check_pin(),
+                ).pack(side="left")
+
+                tk.Label(center, textvariable=pin_status_var,
+                         font=("Segoe UI", 9),
+                         bg="#0d0d0d", fg="#cc4444").pack()
+
+                def _show_pin_entry() -> None:
+                    use_pin_btn.pack_forget()
+                    pin_frame.pack(pady=(4, 0))
+
+                def _check_pin() -> None:
+                    entered = pin_var.get().encode()
+                    if bcrypt.checkpw(entered, pin_hash.encode()):
+                        try:
+                            c = make_client()
+                            send(c, {"cmd": "unlock"})
+                            recv(c)
+                            c.close()
+                        except Exception:
+                            pass
+                        root.after(0, root.destroy)
+                    else:
+                        pin_status_var.set("Incorrect PIN — try again")
+                        pin_var.set("")
+
+                use_pin_btn.configure(command=_show_pin_entry)
+                root.bind("<Return>", lambda e: _check_pin())
+
+            tk.Label(center, text="FaceLock  •  GDPR compliant",
+                     font=("Segoe UI", 9),
+                     bg="#0d0d0d", fg="#444444").pack(pady=(32, 0))
+
+            # Start dot animation only in normal mode.
+            root.after(400, self._animate_dot)
+
+        # Auth loop is the same regardless of display mode.
+        threading.Thread(
+            target=self._auth_loop, args=(username,), daemon=True).start()
+
+        root.mainloop()
+
+        # Clean up after window closes (auth success or hide() called).
+        self._running = False
+        self._root = None
+        self._status_var = None
+        self._dot_var = None
+
+    def _build_hidden_ui(self, root: tk.Tk, username: str,
+                         has_pin: bool, pin_hash: str | None) -> None:
+        """Renders a Windows lock screen clone — clock, date, optional PIN entry.
+
+        No FaceLock branding is shown. Face auth runs silently in the background.
+        PIN entry appears when the user starts typing, mirroring Windows behavior.
+        """
+        bg = "#1a1a2e"  # dark blue-black matching Windows lock screen tone
+        root.configure(bg=bg)
+
+        # Center content slightly above middle, like the real Windows lock screen.
+        center = tk.Frame(root, bg=bg)
+        center.place(relx=0.5, rely=0.42, anchor="center")
+
+        # Large clock — updated every second.
+        time_var = tk.StringVar(master=root)
+        tk.Label(center, textvariable=time_var,
+                 font=("Segoe UI Light", 80), bg=bg, fg="white").pack()
+
+        # Date line below the clock.
+        date_var = tk.StringVar(master=root)
+        tk.Label(center, textvariable=date_var,
+                 font=("Segoe UI Light", 22), bg=bg, fg="white").pack(pady=(0, 48))
+
+        def _update_clock() -> None:
+            # Refresh time and date every second via tkinter's event loop.
+            if not self._root:
+                return
+            now = datetime.now()
+            time_var.set(now.strftime("%H:%M"))
+            date_var.set(now.strftime("%A, %B %d"))
+            root.after(1000, _update_clock)
+
+        _update_clock()
 
         if has_pin:
-            pin_hash: str = user["pin_hash"]
+            # PIN area — hidden until user starts typing, like Windows Hello.
+            pin_area = tk.Frame(center, bg=bg)
 
-            # Divider above the PIN option.
-            tk.Label(center, text="─" * 24,
-                     bg="#0d0d0d", fg="#333333",
-                     font=("Segoe UI", 9)).pack(pady=(20, 4))
+            tk.Label(pin_area, text=username,
+                     font=("Segoe UI", 13), bg=bg, fg="#cccccc").pack()
 
-            # "Use PIN instead" button — hidden once clicked.
-            use_pin_btn = tk.Button(
-                center, text="Use PIN instead",
-                font=("Segoe UI", 10), bg="#0d0d0d", fg="#666666",
-                relief="flat", cursor="hand2",
-                activebackground="#0d0d0d", activeforeground="white",
-            )
-            use_pin_btn.pack()
-
-            # PIN entry row + error label — hidden until button is clicked.
-            pin_frame = tk.Frame(center, bg="#0d0d0d")
             pin_var = tk.StringVar(master=root)
+            pin_entry = tk.Entry(
+                pin_area, textvariable=pin_var, show="●",
+                font=("Segoe UI", 18), width=14,
+                bg="#2c2c3e", fg="white", insertbackground="white",
+                relief="flat", justify="center",
+            )
+            pin_entry.pack(pady=(10, 4), ipady=6)
+
             pin_status_var = tk.StringVar(master=root, value="")
+            tk.Label(pin_area, textvariable=pin_status_var,
+                     font=("Segoe UI", 9), bg=bg, fg="#ff6666").pack()
 
-            tk.Entry(pin_frame, textvariable=pin_var, show="*",
-                     font=("Segoe UI", 14), width=10,
-                     bg="#1a1a1a", fg="white", insertbackground="white",
-                     relief="flat").pack(side="left", padx=(0, 8))
-
+            # Arrow submit button styled like Windows.
             tk.Button(
-                pin_frame, text="Unlock",
-                font=("Segoe UI", 10), bg="#1a73e8", fg="white",
-                relief="flat", cursor="hand2",
-                activebackground="#1558b0", activeforeground="white",
+                pin_area, text="→",
+                font=("Segoe UI", 16), bg="#3a3a5c", fg="white",
+                relief="flat", cursor="hand2", width=3,
+                activebackground="#4a4a6c", activeforeground="white",
                 command=lambda: _check_pin(),
-            ).pack(side="left")
-
-            tk.Label(center, textvariable=pin_status_var,
-                     font=("Segoe UI", 9),
-                     bg="#0d0d0d", fg="#cc4444").pack()
-
-            def _show_pin_entry() -> None:
-                # Swap the button for the entry field.
-                use_pin_btn.pack_forget()
-                pin_frame.pack(pady=(4, 0))
+            ).pack(pady=(6, 0))
 
             def _check_pin() -> None:
                 entered = pin_var.get().encode()
                 if bcrypt.checkpw(entered, pin_hash.encode()):
-                    # PIN correct — unlock core service and close overlay.
                     try:
                         c = make_client()
                         send(c, {"cmd": "unlock"})
@@ -174,33 +283,23 @@ class LockOverlay:
                         pass
                     root.after(0, root.destroy)
                 else:
-                    pin_status_var.set("Incorrect PIN — try again")
+                    pin_status_var.set("Incorrect PIN")
                     pin_var.set("")
 
-            # Wire the button after the callbacks are defined.
-            use_pin_btn.configure(command=_show_pin_entry)
+            def _reveal_pin(e=None) -> None:
+                # Show PIN area on first keypress — mirrors Windows behavior.
+                # Unbind so repeated keypresses don't re-trigger.
+                root.unbind("<KeyPress>")
+                pin_area.pack()
+                pin_entry.focus_set()
 
-            # Allow Enter key to submit the PIN.
+            root.bind("<KeyPress>", _reveal_pin)
             root.bind("<Return>", lambda e: _check_pin())
 
-        tk.Label(center, text="FaceLock  •  GDPR compliant",
-                 font=("Segoe UI", 9),
-                 bg="#0d0d0d", fg="#444444").pack(pady=(32, 0))
-
-        # Start the background face auth loop.
-        threading.Thread(
-            target=self._auth_loop, args=(username,), daemon=True).start()
-
-        # Kick off the dot animation via tkinter's event loop.
-        root.after(400, self._animate_dot)
-
-        root.mainloop()
-
-        # Clean up after window closes (auth success or hide() called).
-        self._running = False
-        self._root = None
-        self._status_var = None
-        self._dot_var = None
+        # Tiny blue dot in the bottom-right — only visible cue that auth is running.
+        # Subtle enough that a tailgater wouldn't notice it.
+        tk.Label(root, text="●", font=("Segoe UI", 8),
+                 bg=bg, fg="#1a73e8").place(relx=0.985, rely=0.985, anchor="se")
 
     def _animate_dot(self) -> None:
         # Advance the dot frame and reschedule — runs on the tkinter thread.

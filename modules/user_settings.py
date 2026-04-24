@@ -5,6 +5,7 @@ import os
 _DEFAULTS: dict = {
     "tolerance": 0.5,
     "absence_threshold": 5,
+    "hidden_mode": False,  # when True, overlay mimics Windows lock screen
 }
 
 
