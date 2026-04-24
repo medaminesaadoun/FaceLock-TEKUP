@@ -343,38 +343,71 @@ class LockOverlay:
         _update_clock()
 
         if has_pin:
-            # PIN frame embedded in the canvas via create_window so it floats
-            # over the background image correctly.
-            pin_frame = tk.Frame(canvas, bg="#1e1e2e", padx=20, pady=16)
+            # Outer frame sits on the canvas via create_window.
+            # Uses the background color so it blends with the lock screen image.
+            pin_outer = tk.Frame(canvas, bg="#1a1a2e")
 
-            tk.Label(pin_frame, text=username,
-                     font=("Segoe UI", 12), bg="#1e1e2e", fg="#bbbbbb").pack()
+            # Username label above the field, like Windows lock screen.
+            tk.Label(pin_outer, text=username,
+                     font=("Segoe UI", 12), bg="#1a1a2e",
+                     fg="#cccccc").pack(pady=(0, 8))
+
+            # White field container with a thin border — matches the screenshot.
+            field_box = tk.Frame(
+                pin_outer, bg="white",
+                highlightbackground="#8a9cc0",
+                highlightthickness=1,
+            )
+            field_box.pack()
 
             pin_var = tk.StringVar(master=root)
             pin_entry = tk.Entry(
-                pin_frame, textvariable=pin_var, show="●",
-                font=("Segoe UI", 18), width=14,
-                bg="#2c2c3e", fg="white", insertbackground="white",
-                relief="flat", justify="center",
+                field_box, textvariable=pin_var,
+                show="●",                         # filled circle dots
+                font=("Segoe UI", 14), width=18,
+                bg="white", fg="#1a1a2a",
+                insertbackground="#1a1a2a",
+                relief="flat", bd=0,
             )
-            pin_entry.pack(pady=(10, 4), ipady=6)
+            pin_entry.pack(side="left", padx=(12, 4), pady=8, ipady=2)
 
-            pin_status_var = tk.StringVar(master=root, value="")
-            tk.Label(pin_frame, textvariable=pin_status_var,
-                     font=("Segoe UI", 9), bg="#1e1e2e", fg="#ff6666").pack()
+            # Eye button toggles show/hide — matches the ⊙ icon in the image.
+            _showing = tk.BooleanVar(master=root, value=False)
+
+            def _toggle_reveal() -> None:
+                if _showing.get():
+                    pin_entry.configure(show="●")
+                    _showing.set(False)
+                else:
+                    pin_entry.configure(show="")
+                    _showing.set(True)
 
             tk.Button(
-                pin_frame, text="→",
-                font=("Segoe UI", 16), bg="#3a3a5c", fg="white",
-                relief="flat", cursor="hand2", width=3,
-                activebackground="#4a4a6c", activeforeground="white",
-                command=lambda: _check_pin(),
-            ).pack(pady=(8, 0))
+                field_box, text="⊙",
+                font=("Segoe UI", 12), bg="white", fg="#666666",
+                relief="flat", bd=0, cursor="hand2",
+                activebackground="white", activeforeground="#333333",
+                command=_toggle_reveal,
+            ).pack(side="right", padx=(4, 10))
 
-            # Create the PIN window hidden — revealed on first keypress.
-            pin_window = canvas.create_window(
-                w // 2, int(h * 0.62),
-                window=pin_frame, anchor="center", state="hidden")
+            # Error label and submit button below the field.
+            pin_status_var = tk.StringVar(master=root, value="")
+            tk.Label(pin_outer, textvariable=pin_status_var,
+                     font=("Segoe UI", 9), bg="#1a1a2e",
+                     fg="#ff6666").pack(pady=(4, 0))
+
+            tk.Button(
+                pin_outer, text="Sign in  →",
+                font=("Segoe UI", 10), bg="#0067c0", fg="white",
+                relief="flat", cursor="hand2", padx=16, pady=4,
+                activebackground="#0053a0", activeforeground="white",
+                command=lambda: _check_pin(),
+            ).pack(pady=(10, 0))
+
+            # Place on canvas, visible immediately — no keypress needed.
+            canvas.create_window(
+                w // 2, int(h * 0.65),
+                window=pin_outer, anchor="center")
 
             def _check_pin() -> None:
                 entered = pin_var.get().encode()
@@ -391,13 +424,8 @@ class LockOverlay:
                     pin_status_var.set("Incorrect PIN")
                     pin_var.set("")
 
-            def _reveal_pin(e=None) -> None:
-                # Reveal PIN entry on first keypress — mirrors Windows Hello.
-                root.unbind("<KeyPress>")
-                canvas.itemconfig(pin_window, state="normal")
-                pin_entry.focus_set()
-
-            root.bind("<KeyPress>", _reveal_pin)
+            # Auto-focus the entry and allow Enter to submit.
+            root.after(100, pin_entry.focus_set)
             root.bind("<Return>", lambda e: _check_pin())
 
         # Tiny indicator dot — only visible cue that face auth is running.
