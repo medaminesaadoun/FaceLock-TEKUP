@@ -123,7 +123,7 @@ class Dashboard(tk.Tk):
                  background="#f4f4f4").pack(side="left")
 
         if enrolled:
-            self._last_auth_var = tk.StringVar(value=f"Last auth:  {_last_auth_label(self._username)}")
+            self._last_auth_var = tk.StringVar(master=self, value=f"Last auth:  {_last_auth_label(self._username)}")
             tk.Label(acct_frame, textvariable=self._last_auth_var,
                      font=("Segoe UI", 9), foreground="#666666",
                      background="#f4f4f4").pack(anchor="w", pady=(2, 0))

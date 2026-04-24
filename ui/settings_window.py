@@ -56,7 +56,7 @@ class SettingsWindow(tk.Tk):
         tol_frame.pack(fill="x", pady=(0, 4))
 
         ttk.Label(tol_frame, text="Strict", style="Hint.TLabel").pack(side="left")
-        self._tol_var = tk.DoubleVar(value=self._settings["tolerance"])
+        self._tol_var = tk.DoubleVar(master=self, value=self._settings["tolerance"])
         ttk.Scale(tol_frame, from_=0.3, to=0.7, variable=self._tol_var,
                   orient="horizontal", length=180,
                   command=self._on_slider_move).pack(side="left", padx=8)
@@ -65,7 +65,7 @@ class SettingsWindow(tk.Tk):
         val_row = ttk.Frame(outer)
         val_row.pack(anchor="w", pady=(0, 8))
         ttk.Label(val_row, text="Threshold: ", style="Hint.TLabel").pack(side="left")
-        self._tol_display = tk.StringVar(value=f"{self._settings['tolerance']:.2f}")
+        self._tol_display = tk.StringVar(master=self, value=f"{self._settings['tolerance']:.2f}")
         ttk.Label(val_row, textvariable=self._tol_display,
                   font=("Segoe UI", 9, "bold")).pack(side="left")
         ttk.Label(val_row, text="  (lower rejects more faces)",

@@ -59,8 +59,8 @@ class EnrollmentWindow(tk.Tk):
         self.resizable(False, False)
         apply_theme(self)
         self._username = getpass.getuser()
-        self._fallback = tk.StringVar(value=config.DEFAULT_FALLBACK)
-        self._pin_var = tk.StringVar()
+        self._fallback = tk.StringVar(master=self, value=config.DEFAULT_FALLBACK)
+        self._pin_var = tk.StringVar(master=self)
 
         self._build_chrome()
         self._show_consent_step()
@@ -206,7 +206,7 @@ class EnrollmentWindow(tk.Tk):
         ttk.Label(self._frame_container, text="Enrolling Your Face",
                   style="Section.TLabel").pack(anchor="w", pady=(0, 4))
 
-        self._status_var = tk.StringVar(value="Look straight at the camera, blink naturally")
+        self._status_var = tk.StringVar(master=self, value="Look straight at the camera, blink naturally")
         ttk.Label(self._frame_container, textvariable=self._status_var,
                   font=("Segoe UI", 10, "bold")).pack(pady=(0, 8))
 
@@ -221,11 +221,11 @@ class EnrollmentWindow(tk.Tk):
                                          maximum=config.ENROLLMENT_FRAMES,
                                          length=_PREVIEW_W - 48)
         self._progress.pack(side="left")
-        self._pct_var = tk.StringVar(value="0%")
+        self._pct_var = tk.StringVar(master=self, value="0%")
         ttk.Label(prog_row, textvariable=self._pct_var,
                   font=("Segoe UI", 9, "bold"), width=5).pack(side="left", padx=(6, 0))
 
-        self._frame_label = tk.StringVar(value=f"0 / {config.ENROLLMENT_FRAMES} frames captured")
+        self._frame_label = tk.StringVar(master=self, value=f"0 / {config.ENROLLMENT_FRAMES} frames captured")
         ttk.Label(self._frame_container, textvariable=self._frame_label,
                   style="Hint.TLabel").pack()
 
