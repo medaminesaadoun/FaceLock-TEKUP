@@ -75,6 +75,11 @@ class SettingsWindow(tk.Tk):
         # ---- Locking Behaviour ----
         self._section(outer, "Locking Behaviour")
 
+        # Initialise the list that _save_and_close and destroy() will iterate.
+        # Each entry: (settings_key, IntVar, display_StringVar, trace_id)
+        if not hasattr(self, "_slider_vars"):
+            self._slider_vars: list[tuple] = []
+
         def _int_slider(parent, label, key, from_, to, unit="s") -> tk.IntVar:
             """Helper that builds a labelled integer slider and returns its var."""
             var = tk.IntVar(master=self, value=int(self._settings.get(key, 0)))
@@ -85,19 +90,17 @@ class SettingsWindow(tk.Tk):
                       orient="horizontal", length=140,
                       command=lambda _: var.set(int(var.get()))
                       ).pack(side="left", padx=6)
-            disp = tk.StringVar(master=self,
-                                value=f"{var.get()} {unit}")
+            disp = tk.StringVar(master=self, value=f"{var.get()} {unit}")
             ttk.Label(row, textvariable=disp,
                       font=("Segoe UI", 9, "bold"), width=7).pack(side="left")
-            # Keep display label in sync with slider.
-            var.trace_add("write",
-                lambda *_: disp.set(f"{var.get()} {unit}"))
-            self._slider_vars.append((key, var, disp))
+            # Save trace ID so we can explicitly remove it in destroy() —
+            # unremoved Tcl traces cause Tcl_AsyncDelete when the window closes.
+            tid = var.trace_add(
+                "write",
+                lambda *_, v=var, d=disp, u=unit: d.set(f"{v.get()} {u}"),
+            )
+            self._slider_vars.append((key, var, disp, tid))
             return var
-
-        # Initialise the list that _save_and_close will iterate.
-        if not hasattr(self, "_slider_vars"):
-            self._slider_vars = []
 
         _int_slider(outer, "Lock timeout",
                     "lock_timeout", 3, 30, "s")
@@ -170,14 +173,19 @@ class SettingsWindow(tk.Tk):
         ttk.Separator(parent, orient="horizontal").pack(fill="x", pady=(0, 8))
 
     def destroy(self) -> None:
-        # Nullify tk.Variable refs before Tcl teardown so their __del__
-        # doesn't fire in the GC thread and corrupt the interpreter.
+        # Remove Tcl traces first — leaving them registered causes
+        # Tcl_AsyncDelete when the interpreter tears down from a daemon thread.
+        for _, var, disp, tid in getattr(self, "_slider_vars", []):
+            try:
+                var.trace_remove("write", tid)
+            except Exception:
+                pass
+        self._slider_vars = []
+        # Nullify remaining tk.Variable refs so their __del__ doesn't fire
+        # in the GC thread after the interpreter is gone.
         self._tol_var = None
         self._tol_display = None
         self._hidden_mode_var = None
-        for _, var, disp in getattr(self, "_slider_vars", []):
-            var._name = None  # type: ignore[attr-defined]
-        self._slider_vars = []
         super().destroy()
 
     def _on_slider_move(self, _=None) -> None:
@@ -189,7 +197,7 @@ class SettingsWindow(tk.Tk):
         self._settings["tolerance"] = round(self._tol_var.get(), 2)
         self._settings["hidden_mode"] = bool(self._hidden_mode_var.get())
         # Save all integer sliders from the Locking Behaviour section.
-        for key, var, _ in getattr(self, "_slider_vars", []):
+        for key, var, _disp, _tid in getattr(self, "_slider_vars", []):
             self._settings[key] = int(var.get())
         save_settings(config.SETTINGS_PATH, self._settings)
         self.destroy()
