@@ -7,6 +7,7 @@ import threading
 import os
 
 import config
+from modules.database import get_user
 from modules.gdpr import erase_user_data, generate_dpia, has_consent
 from modules.user_settings import load as load_settings, save as save_settings
 from ui._theme import apply as apply_theme, center as center_window
@@ -74,13 +75,36 @@ class SettingsWindow(tk.Tk):
         # ---- Lock Overlay ----
         self._section(outer, "Lock Overlay")
 
+        # Hidden mode requires a PIN fallback — without it the user has no way
+        # to interact with the disguised overlay if face auth fails.
+        user = get_user(config.DB_PATH, self._username)
+        has_pin = (
+            user is not None
+            and user.get("fallback_method") == config.FALLBACK_PIN
+            and user.get("pin_hash")
+        )
+
+        # Force the setting off if PIN was removed since last save.
+        if not has_pin:
+            self._settings["hidden_mode"] = False
+
         self._hidden_mode_var = tk.BooleanVar(
             master=self, value=self._settings.get("hidden_mode", False))
-        ttk.Checkbutton(
+
+        cb = ttk.Checkbutton(
             outer,
             text="Hidden mode — disguise overlay as Windows lock screen",
             variable=self._hidden_mode_var,
-        ).pack(anchor="w", pady=(0, 8))
+        )
+        cb.pack(anchor="w")
+
+        if not has_pin:
+            # Disable and explain why.
+            cb.configure(state="disabled")
+            ttk.Label(outer, text="Requires PIN fallback — re-enroll with PIN to enable",
+                      style="Hint.TLabel").pack(anchor="w", pady=(2, 8))
+        else:
+            cb.pack_configure(pady=(0, 8))
 
         # ---- Privacy & GDPR ----
         self._section(outer, "Privacy & GDPR")
