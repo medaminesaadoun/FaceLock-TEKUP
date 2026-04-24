@@ -44,6 +44,7 @@ class LockOverlay:
         self._status_var: tk.StringVar | None = None
         self._dot_var: tk.StringVar | None = None
         self._dot_idx = 0
+        self._bg_photo = None  # tk.PhotoImage for hidden mode background
 
     def show(self, username: str) -> None:
         # Guard against showing twice if already visible.
@@ -215,6 +216,7 @@ class LockOverlay:
         self._root = None
         self._status_var = None
         self._dot_var = None
+        self._bg_photo = None  # <Destroy> binding already deleted it from Tcl
 
     @staticmethod
     def _load_lock_screen_image(w: int, h: int) -> bytes | None:
@@ -320,7 +322,10 @@ class LockOverlay:
             b64 = base64.b64encode(raw_png).decode("ascii")
             bg_photo = tk.PhotoImage(master=root, data=b64)
             canvas.create_image(0, 0, anchor="nw", image=bg_photo)
-            canvas._bg_photo = bg_photo  # hold reference to prevent GC
+            # Store on self so we control when it's deleted. A <Destroy>
+            # binding below deletes it from the correct thread before the
+            # Tcl interpreter tears down, preventing the __del__ crash.
+            self._bg_photo = bg_photo
 
         # Clock text drawn directly on canvas — no background color conflict.
         cy = int(h * 0.38)
@@ -341,6 +346,21 @@ class LockOverlay:
             root.after(1000, _update_clock)
 
         _update_clock()
+
+        # Delete the background PhotoImage from inside the Tcl event loop
+        # (i.e. from the correct thread) before the interpreter tears down.
+        # Without this, Python's GC calls __del__ from the main thread later,
+        # which causes the "main thread is not in main loop" crash.
+        def _on_destroy(e: tk.Event) -> None:
+            if e.widget is root and self._bg_photo is not None:
+                try:
+                    self._bg_photo.tk.call("image", "delete", self._bg_photo.name)
+                    self._bg_photo.name = None  # disarm __del__
+                except Exception:
+                    pass
+                self._bg_photo = None
+
+        root.bind("<Destroy>", _on_destroy)
 
         if has_pin:
             # PIN area rendered entirely on the canvas — no Frame wrapper, so
@@ -483,7 +503,11 @@ class LockOverlay:
                         pass
                     # Close the overlay window from the tkinter thread.
                     if self._root:
-                        self._root.after(0, self._root.destroy)
+                        # Null self._root before scheduling destroy so that a
+                        # concurrent hide() call doesn't try to destroy twice.
+                        root_ref = self._root
+                        self._root = None
+                        root_ref.after(0, root_ref.destroy)
                     return
 
                 # Auth timed out without a match — loop and try again.
