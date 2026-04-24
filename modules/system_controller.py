@@ -55,6 +55,8 @@ def run_mode_a(poll_interval: float = 1.0, absence_threshold: int = 5) -> None:
             else:
                 absence_streak += 1
                 if absence_streak >= absence_threshold:
+                    from modules.notifications import notify
+                    notify("FaceLock — Locked", "No face detected. Workstation locked.")
                     _lock_workstation()
                     locked = True
                     absence_streak = 0

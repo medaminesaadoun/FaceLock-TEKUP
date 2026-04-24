@@ -296,6 +296,8 @@ class EnrollmentWindow(tk.Tk):
 
     def _on_enroll_done(self, result: dict) -> None:
         if result.get("ok"):
+            from modules.notifications import notify
+            notify("FaceLock — Enrolled", f"{self._username} has been enrolled successfully.")
             self._show_success_step()
         else:
             erase_user_data(config.DB_PATH, config.KEY_PATH, self._username)
@@ -305,18 +307,25 @@ class EnrollmentWindow(tk.Tk):
 
     def _show_success_step(self) -> None:
         self._clear()
-        # Highlight all steps as complete
         for lbl in self._step_labels:
             lbl.configure(foreground="#1a73e8", font=("Segoe UI", 9, "bold"))
 
-        ttk.Label(self._frame_container, text="Enrollment Complete",
-                  style="Section.TLabel").pack(pady=(20, 8))
+        tk.Label(self._frame_container, text="✓",
+                 font=("Segoe UI", 52, "bold"), foreground="#1a8f1a",
+                 background=self._frame_container.cget("background")).pack(pady=(20, 0))
+
+        ttk.Label(self._frame_container, text="You're all set!",
+                  font=("Segoe UI", 14, "bold")).pack(pady=(8, 2))
         ttk.Label(self._frame_container,
-                  text="Your face has been enrolled successfully.\n"
-                       "FaceLock will now protect this device.",
-                  justify="center").pack()
-        ttk.Button(self._frame_container, text="Close",
-                   command=self.destroy).pack(pady=(20, 0))
+                  text=f"Enrolled as  {self._username}",
+                  font=("Segoe UI", 10)).pack()
+        ttk.Label(self._frame_container,
+                  text="FaceLock will monitor your presence and\n"
+                       "lock this device when you step away.",
+                  justify="center", style="Hint.TLabel").pack(pady=(10, 0))
+
+        ttk.Button(self._frame_container, text="Done",
+                   command=self.destroy).pack(pady=(20, 8))
 
     # ------------------------------------------------------------------
     # Helpers

@@ -6,4 +6,4 @@ cryptography
 pywin32
 bcrypt
 pillow
-pystray
+pystraywinotify
