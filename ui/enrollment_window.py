@@ -310,9 +310,8 @@ class EnrollmentWindow(tk.Tk):
         for lbl in self._step_labels:
             lbl.configure(foreground="#1a73e8", font=("Segoe UI", 9, "bold"))
 
-        tk.Label(self._frame_container, text="✓",
-                 font=("Segoe UI", 52, "bold"), foreground="#1a8f1a",
-                 background=self._frame_container.cget("background")).pack(pady=(20, 0))
+        ttk.Label(self._frame_container, text="✓",
+                  font=("Segoe UI", 52, "bold"), foreground="#1a8f1a").pack(pady=(20, 0))
 
         ttk.Label(self._frame_container, text="You're all set!",
                   font=("Segoe UI", 14, "bold")).pack(pady=(8, 2))
