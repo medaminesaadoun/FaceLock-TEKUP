@@ -62,28 +62,26 @@ def _handle_auth(username: str, detector: FaceDetector) -> dict:
         cap = _open_camera()
         try:
             deadline = time.monotonic() + config.AUTO_LOCK_TIMEOUT_SECONDS
-            _frame_interval = 1.0 / 8
-            _last_frame_time = 0.0
             while time.monotonic() < deadline:
                 ret, frame = cap.read()
                 if not ret:
+                    time.sleep(0.1)
                     continue
-                now = time.monotonic()
-                if now - _last_frame_time < _frame_interval:
-                    continue
-                _last_frame_time = now
                 small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
                 boxes = detector.find_faces(small)
                 if len(boxes) != 1:
                     auth.reset()
+                    time.sleep(0.1)
                     continue
                 live_emb = extract_embedding(small, boxes[0])
                 if live_emb is None:
+                    time.sleep(0.1)
                     continue
                 if auth.feed(live_emb):
                     log_auth_event(config.DB_PATH, username, "pass", "face")
                     update_last_used(config.DB_PATH, user["id"])
                     return {"ok": True}
+                time.sleep(0.1)
         finally:
             cap.release()
 
@@ -206,16 +204,11 @@ def _handle_debug_stream(conn, detector: FaceDetector) -> None:
         try:
             face_frame_counter = 0
             last_embedding_bytes = None
-            _frame_interval = 1.0 / 15
-            _last_frame_time = 0.0
             while True:
                 ret, frame = cap.read()
                 if not ret:
+                    time.sleep(0.05)
                     continue
-                now = time.monotonic()
-                if now - _last_frame_time < _frame_interval:
-                    continue
-                _last_frame_time = now
                 small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
                 boxes_small = detector.find_faces(small)
                 boxes = [(x*2, y*2, w*2, h*2) for x, y, w, h in boxes_small]
@@ -238,6 +231,7 @@ def _handle_debug_stream(conn, detector: FaceDetector) -> None:
                     })
                 except Exception:
                     break
+                time.sleep(0.067)  # ~15fps
         finally:
             cap.release()
 
