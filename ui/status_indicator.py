@@ -343,72 +343,50 @@ class LockOverlay:
         _update_clock()
 
         if has_pin:
-            # Outer frame sits on the canvas via create_window.
-            # Uses the background color so it blends with the lock screen image.
-            pin_outer = tk.Frame(canvas, bg="#1a1a2e")
+            # PIN area rendered entirely on the canvas — no Frame wrapper, so
+            # there's no solid background rectangle overlaid on the wallpaper.
+            FIELD_W, FIELD_H = 300, 44
+            PIN_Y = int(h * 0.64)
 
-            # Username label above the field, like Windows lock screen.
-            tk.Label(pin_outer, text=username,
-                     font=("Segoe UI", 12), bg="#1a1a2e",
-                     fg="#cccccc").pack(pady=(0, 8))
+            # Username as canvas text — floats on the wallpaper with no bg box.
+            uid = canvas.create_text(
+                w // 2, PIN_Y - 60, text=username,
+                font=("Segoe UI Light", 15), fill="white",
+                anchor="center", state="hidden")
 
-            # White field container with a thin border — matches the screenshot.
-            field_box = tk.Frame(
-                pin_outer, bg="white",
-                highlightbackground="#8a9cc0",
-                highlightthickness=1,
-            )
-            field_box.pack()
+            # White field rectangle drawn directly on canvas.
+            fid = canvas.create_rectangle(
+                w // 2 - FIELD_W // 2, PIN_Y - FIELD_H // 2,
+                w // 2 + FIELD_W // 2, PIN_Y + FIELD_H // 2,
+                fill="white", outline="#c8c8c8", width=1, state="hidden")
 
+            # Entry embedded on top of the white rectangle.
             pin_var = tk.StringVar(master=root)
             pin_entry = tk.Entry(
-                field_box, textvariable=pin_var,
-                show="●",                         # filled circle dots
-                font=("Segoe UI", 14), width=18,
-                bg="white", fg="#1a1a2a",
-                insertbackground="#1a1a2a",
-                relief="flat", bd=0,
+                canvas, textvariable=pin_var, show="●",
+                font=("Segoe UI", 13), bd=0, relief="flat",
+                bg="white", fg="#1a1a2a", insertbackground="#1a1a2a",
             )
-            pin_entry.pack(side="left", padx=(12, 4), pady=8, ipady=2)
+            pew = canvas.create_window(
+                w // 2 - 18, PIN_Y,
+                window=pin_entry, anchor="center",
+                width=FIELD_W - 54, height=FIELD_H - 12, state="hidden")
 
-            # Eye button toggles show/hide — matches the ⊙ icon in the image.
-            _showing = tk.BooleanVar(master=root, value=False)
-
+            # Eye button inside the field on the right.
             def _toggle_reveal() -> None:
-                if _showing.get():
-                    pin_entry.configure(show="●")
-                    _showing.set(False)
-                else:
-                    pin_entry.configure(show="")
-                    _showing.set(True)
+                pin_entry.configure(
+                    show="" if pin_entry.cget("show") == "●" else "●")
 
-            tk.Button(
-                field_box, text="⊙",
-                font=("Segoe UI", 12), bg="white", fg="#666666",
-                relief="flat", bd=0, cursor="hand2",
-                activebackground="white", activeforeground="#333333",
-                command=_toggle_reveal,
-            ).pack(side="right", padx=(4, 10))
+            eye_btn = tk.Button(
+                canvas, text="⊙", font=("Segoe UI", 11),
+                bg="white", fg="#888888", bd=0, relief="flat",
+                activebackground="white", activeforeground="#444444",
+                cursor="hand2", command=_toggle_reveal)
+            ebw = canvas.create_window(
+                w // 2 + FIELD_W // 2 - 20, PIN_Y,
+                window=eye_btn, anchor="center", state="hidden")
 
-            # Error label and submit button below the field.
-            pin_status_var = tk.StringVar(master=root, value="")
-            tk.Label(pin_outer, textvariable=pin_status_var,
-                     font=("Segoe UI", 9), bg="#1a1a2e",
-                     fg="#ff6666").pack(pady=(4, 0))
-
-            tk.Button(
-                pin_outer, text="Sign in  →",
-                font=("Segoe UI", 10), bg="#0067c0", fg="white",
-                relief="flat", cursor="hand2", padx=16, pady=4,
-                activebackground="#0053a0", activeforeground="white",
-                command=lambda: _check_pin(),
-            ).pack(pady=(10, 0))
-
-            # Place on canvas, visible immediately — no keypress needed.
-            canvas.create_window(
-                w // 2, int(h * 0.65),
-                window=pin_outer, anchor="center")
-
+            # Arrow submit button to the right of the field — Windows style.
             def _check_pin() -> None:
                 entered = pin_var.get().encode()
                 if bcrypt.checkpw(entered, pin_hash.encode()):
@@ -421,11 +399,43 @@ class LockOverlay:
                         pass
                     root.after(0, root.destroy)
                 else:
-                    pin_status_var.set("Incorrect PIN")
+                    # Show error text below the field.
+                    canvas.itemconfig(eid, state="normal",
+                                      text="Incorrect PIN")
                     pin_var.set("")
 
-            # Auto-focus the entry and allow Enter to submit.
-            root.after(100, pin_entry.focus_set)
+            arrow_btn = tk.Button(
+                canvas, text="→", font=("Segoe UI", 14),
+                bg="#0067c0", fg="white", bd=0, relief="flat",
+                activebackground="#0053a0", cursor="hand2",
+                command=_check_pin)
+            abw = canvas.create_window(
+                w // 2 + FIELD_W // 2 + 28, PIN_Y,
+                window=arrow_btn, anchor="center",
+                width=44, height=FIELD_H, state="hidden")
+
+            # Error message as canvas text — no background box.
+            eid = canvas.create_text(
+                w // 2, PIN_Y + FIELD_H // 2 + 18, text="",
+                font=("Segoe UI", 9), fill="#ff6666",
+                anchor="center", state="hidden")
+
+            # Collect all items to show/hide together.
+            _pin_items = [uid, fid, pew, ebw, abw]
+
+            def _reveal_pin(e=None) -> None:
+                # Unbind so this only fires once.
+                root.unbind("<KeyPress>")
+                canvas.unbind("<Button-1>")
+                for item in _pin_items:
+                    canvas.itemconfig(item, state="normal")
+                # Show error slot (empty text, becomes visible on wrong PIN).
+                canvas.itemconfig(eid, state="normal")
+                pin_entry.focus_set()
+
+            # Reveal on any click or keypress — mirrors Windows lock screen.
+            canvas.bind("<Button-1>", lambda e: _reveal_pin())
+            root.bind("<KeyPress>", lambda e: _reveal_pin())
             root.bind("<Return>", lambda e: _check_pin())
 
         # Tiny indicator dot — only visible cue that face auth is running.
