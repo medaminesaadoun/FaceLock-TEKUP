@@ -1,13 +1,11 @@
 # tests/test_detection.py
-# TC5 — Live face detection (requires webcam)
-import os
-import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
+# TC5 — Live face detection tests (require webcam + person in frame)
 import cv2
 import pytest
 import config
 from modules.face_detector import FaceDetector
+
+pytestmark = pytest.mark.camera  # all tests in this file need a webcam
 
 
 @pytest.fixture(scope="module")
@@ -19,7 +17,7 @@ def detector():
 def live_frame():
     cap = cv2.VideoCapture(0)
     assert cap.isOpened(), "Webcam not available"
-    # Discard first few frames while camera warms up
+    # Discard first few frames while camera warms up.
     for _ in range(5):
         cap.read()
     ret, frame = cap.read()
