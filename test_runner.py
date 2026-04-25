@@ -14,6 +14,9 @@ import tkinter as tk
 from tkinter import ttk
 from dataclasses import dataclass
 
+_PAUSE_BETWEEN_TESTS = 0.7   # seconds to show each result before moving on
+_CAMERA_WARMUP       = 2.0   # seconds to let camera initialise before tests
+
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageTk
@@ -92,16 +95,6 @@ class TestRunner(tk.Tk):
     # ------------------------------------------------------------------
 
     def _build(self) -> None:
-        style = ttk.Style(self)
-        # Make checkbutton background match our dark theme.
-        style.configure("Dark.TCheckbutton",
-                        background="#1e1e32",
-                        foreground="#cccccc",
-                        font=("Segoe UI", 10))
-        style.map("Dark.TCheckbutton",
-                  background=[("active", "#2a2a44")],
-                  foreground=[("active", "white")])
-
         # ---- Accent bar ----
         tk.Frame(self, bg="#1a73e8", height=4).pack(fill="x")
 
@@ -199,11 +192,23 @@ class TestRunner(tk.Tk):
             row = tk.Frame(right, bg="#1a1a2e", pady=0)
             row.pack(fill="x", pady=(0, 2))
 
-            # Checkbox — ttk handles its own click events correctly.
+            # Custom toggle — a clickable label showing ☑/☐.
+            # Native tk.Checkbutton / ttk.Checkbutton both have rendering
+            # issues on Windows dark backgrounds, so we manage state manually.
             var = tk.BooleanVar(master=self, value=True)
-            cb = ttk.Checkbutton(row, variable=var, style="Dark.TCheckbutton",
-                                  cursor="hand2")
-            cb.pack(side="left", padx=(8, 0))
+
+            toggle_lbl = tk.Label(row, text="☑", font=("Segoe UI", 13),
+                                   bg="#1a1a2e", fg="#1a73e8", cursor="hand2")
+            toggle_lbl.pack(side="left", padx=(8, 0))
+
+            def _make_toggle(lbl=toggle_lbl, v=var):
+                def _toggle(e=None):
+                    v.set(not v.get())
+                    lbl.configure(
+                        text="☑" if v.get() else "☐",
+                        fg="#1a73e8" if v.get() else "#444455")
+                lbl.bind("<Button-1>", _toggle)
+            _make_toggle()
 
             # Status dot.
             dot = tk.Label(row, text="●", font=("Segoe UI", 11),
@@ -406,15 +411,15 @@ class TestRunner(tk.Tk):
                 msg = fn() or ""
                 self._set_tc(tc_id, "pass", msg)
                 results.append("pass")
-                return True
             except AssertionError as e:
                 self._set_tc(tc_id, "fail", str(e))
                 results.append("fail")
-                return False
             except Exception as e:
                 self._set_tc(tc_id, "fail", f"Error: {e}")
                 results.append("fail")
-                return False
+            # Pause so the user can read the result before moving on.
+            time.sleep(_PAUSE_BETWEEN_TESTS)
+            return results[-1] == "pass"
 
         def _skip(tc_id: str, reason: str = "dependency failed") -> None:
             self._set_tc(tc_id, "skip", reason)
@@ -442,6 +447,11 @@ class TestRunner(tk.Tk):
             assert not result, "Impostor was incorrectly granted access"
             return "Impostor correctly rejected"
         run("TC4", _tc4); tick()
+
+        # Warm up the camera before any camera tests begin.
+        if any(tc.needs_camera and tc.tc_id in wanted for tc in ALL_TESTS):
+            self._set_status(f"Warming up camera…  ({_CAMERA_WARMUP:.0f}s)")
+            time.sleep(_CAMERA_WARMUP)
 
         # Helper: wait for at least one face.
         def _wait_face(timeout: float = 10.0):
