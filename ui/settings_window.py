@@ -8,30 +8,11 @@ import threading
 import config
 from modules.database import get_user
 from modules.gdpr import erase_user_data, generate_dpia, has_consent
-from modules.user_settings import load as load_settings, save as save_settings
+from modules.user_settings import (
+    load as load_settings, save as save_settings,
+    PRESETS, get_active_preset,
+)
 from ui._theme import apply as apply_theme, center as center_window
-
-# Preset definitions — each maps every tunable key to its value.
-_PRESETS: dict[str, dict] = {
-    "Max Security": {
-        "tolerance": 0.40,
-        "lock_timeout": 3,
-        "unlock_grace": 5,
-        "auth_fallback_timeout": 30,
-    },
-    "Balanced": {
-        "tolerance": 0.50,
-        "lock_timeout": 5,
-        "unlock_grace": 10,
-        "auth_fallback_timeout": 60,
-    },
-    "Relaxed": {
-        "tolerance": 0.60,
-        "lock_timeout": 15,
-        "unlock_grace": 30,
-        "auth_fallback_timeout": 120,
-    },
-}
 
 # Brief descriptions shown under each preset name.
 _PRESET_HINTS: dict[str, str] = {
@@ -43,7 +24,7 @@ _PRESET_HINTS: dict[str, str] = {
 
 def _detect_preset(settings: dict) -> str:
     """Return the preset name matching current settings, or '' if custom."""
-    for name, vals in _PRESETS.items():
+    for name, vals in PRESETS.items():
         if (
             abs(settings.get("tolerance", 0) - vals["tolerance"]) < 0.01
             and settings.get("lock_timeout") == vals["lock_timeout"]
@@ -183,7 +164,7 @@ class SettingsWindow(tk.Tk):
         active = _detect_preset(self._settings)
         self._preset_var = tk.StringVar(master=self, value=active)
 
-        for name, hint in _PRESET_HINTS.items():
+        for name, hint in _PRESET_HINTS.items():  # _PRESET_HINTS keys match PRESETS keys
             row = ttk.Frame(parent)
             row.pack(fill="x", pady=3)
             ttk.Radiobutton(
@@ -288,7 +269,7 @@ class SettingsWindow(tk.Tk):
 
     def _select_preset(self, name: str) -> None:
         """Apply a preset's values to settings dict and sync slider vars."""
-        vals = _PRESETS[name]
+        vals = PRESETS[name]
         self._settings.update(vals)
         # Sync advanced sliders so they reflect the preset if user switches.
         for key, var, _d, _t in self._slider_vars:
