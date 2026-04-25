@@ -528,7 +528,11 @@ class StatusIndicator:
         self._paused = False
         self._username = getpass.getuser()
         self._dashboard_thread: threading.Thread | None = None
-        self._dashboard_app = None  # live Dashboard instance (tk.Tk in a thread)
+        self._dashboard_app = None  # live Dashboard tk.Tk
+        self._settings_thread: threading.Thread | None = None
+        self._settings_app = None   # live SettingsWindow tk.Tk
+        self._enroll_thread: threading.Thread | None = None
+        self._enroll_app = None     # live EnrollmentWindow tk.Tk
         self._icon = pystray.Icon(
             "FaceLock",
             _make_tray_icon("green"),
@@ -558,24 +562,35 @@ class StatusIndicator:
         if locked:
             # Close the dashboard before showing the overlay — having two
             # tk.Tk() instances in different threads causes Tcl_AsyncDelete.
-            self._close_dashboard()
+            self._close_all_windows()
             self._overlay.show(self._username)
         else:
             self._overlay.hide()
 
-    def _close_dashboard(self) -> None:
-        """Destroy the dashboard window and wait for its thread to exit."""
-        app = self._dashboard_app
-        if app is not None:
-            self._dashboard_app = None
-            try:
-                app.after(0, app.destroy)
-            except Exception:
-                pass
-        # Wait for the thread to finish so its Tcl interpreter is fully gone
-        # before the overlay creates a new one.
-        if self._dashboard_thread and self._dashboard_thread.is_alive():
-            self._dashboard_thread.join(timeout=1.0)
+    def _close_all_windows(self) -> None:
+        """Close every secondary tk.Tk window and wait for their threads.
+
+        Called before showing the overlay — having two tk.Tk interpreters
+        alive in different threads causes Tcl_AsyncDelete crashes.
+        """
+        pairs = [
+            ("_dashboard_app", "_dashboard_thread"),
+            ("_settings_app",  "_settings_thread"),
+            ("_enroll_app",    "_enroll_thread"),
+        ]
+        for app_attr, thread_attr in pairs:
+            app = getattr(self, app_attr, None)
+            if app is not None:
+                setattr(self, app_attr, None)
+                try:
+                    app.after(0, app.destroy)
+                except Exception:
+                    pass
+        # Wait for all threads so their interpreters are fully torn down.
+        for _, thread_attr in pairs:
+            t = getattr(self, thread_attr, None)
+            if t and t.is_alive():
+                t.join(timeout=1.5)
 
     def _refresh_icon(self) -> None:
         if self._paused:
@@ -632,8 +647,8 @@ class StatusIndicator:
                 self._locked, self._paused,
                 self._toggle_pause_from_dashboard,
                 lambda: self._quit(self._icon, None),
-                lambda: threading.Thread(target=self._do_open_settings, daemon=True).start(),
-                lambda: threading.Thread(target=self._do_open_enroll, daemon=True).start(),
+                lambda: self._open_settings(None, None),
+                lambda: self._open_enrollment(None, None),
                 lambda: threading.Thread(target=self._do_open_debug, daemon=True).start(),
             )
             # Store reference so set_locked() can destroy it before the overlay
@@ -651,12 +666,18 @@ class StatusIndicator:
         self._refresh_icon()
 
     def _do_open_settings(self) -> None:
-        from ui.settings_window import launch as launch_settings
-        launch_settings()
+        from ui.settings_window import SettingsWindow
+        app = SettingsWindow()
+        self._settings_app = app
+        app.mainloop()
+        self._settings_app = None
 
     def _do_open_enroll(self) -> None:
-        from ui.enrollment_window import launch as launch_enroll
-        launch_enroll()
+        from ui.enrollment_window import EnrollmentWindow
+        app = EnrollmentWindow()
+        self._enroll_app = app
+        app.mainloop()
+        self._enroll_app = None
 
     def _do_open_debug(self) -> None:
         # Launch debug view as a separate process to avoid Tcl thread conflicts.
@@ -666,10 +687,14 @@ class StatusIndicator:
         subprocess.Popen([sys.executable, str(main_py), "debug"])
 
     def _open_settings(self, icon, item) -> None:
-        threading.Thread(target=self._do_open_settings, daemon=True).start()
+        t = threading.Thread(target=self._do_open_settings, daemon=True)
+        self._settings_thread = t
+        t.start()
 
     def _open_enrollment(self, icon, item) -> None:
-        threading.Thread(target=self._do_open_enroll, daemon=True).start()
+        t = threading.Thread(target=self._do_open_enroll, daemon=True)
+        self._enroll_thread = t
+        t.start()
 
     def _open_debug(self, icon, item) -> None:
         threading.Thread(target=self._do_open_debug, daemon=True).start()
