@@ -528,6 +528,7 @@ class StatusIndicator:
         self._paused = False
         self._username = getpass.getuser()
         self._dashboard_thread: threading.Thread | None = None
+        self._dashboard_app = None  # live Dashboard instance (tk.Tk in a thread)
         self._icon = pystray.Icon(
             "FaceLock",
             _make_tray_icon("green"),
@@ -555,9 +556,26 @@ class StatusIndicator:
         self._locked = locked
         self._refresh_icon()
         if locked:
+            # Close the dashboard before showing the overlay — having two
+            # tk.Tk() instances in different threads causes Tcl_AsyncDelete.
+            self._close_dashboard()
             self._overlay.show(self._username)
         else:
             self._overlay.hide()
+
+    def _close_dashboard(self) -> None:
+        """Destroy the dashboard window and wait for its thread to exit."""
+        app = self._dashboard_app
+        if app is not None:
+            self._dashboard_app = None
+            try:
+                app.after(0, app.destroy)
+            except Exception:
+                pass
+        # Wait for the thread to finish so its Tcl interpreter is fully gone
+        # before the overlay creates a new one.
+        if self._dashboard_thread and self._dashboard_thread.is_alive():
+            self._dashboard_thread.join(timeout=1.0)
 
     def _refresh_icon(self) -> None:
         if self._paused:
@@ -607,19 +625,24 @@ class StatusIndicator:
     def _open_dashboard(self, icon=None, item=None) -> None:
         if self._dashboard_thread and self._dashboard_thread.is_alive():
             return
-        from ui.dashboard import launch as launch_dashboard
-        self._dashboard_thread = threading.Thread(
-            target=launch_dashboard,
-            args=(
+
+        def _run() -> None:
+            from ui.dashboard import Dashboard
+            app = Dashboard(
                 self._locked, self._paused,
                 self._toggle_pause_from_dashboard,
                 lambda: self._quit(self._icon, None),
                 lambda: threading.Thread(target=self._do_open_settings, daemon=True).start(),
                 lambda: threading.Thread(target=self._do_open_enroll, daemon=True).start(),
                 lambda: threading.Thread(target=self._do_open_debug, daemon=True).start(),
-            ),
-            daemon=True,
-        )
+            )
+            # Store reference so set_locked() can destroy it before the overlay
+            # creates a new Tcl interpreter in a different thread.
+            self._dashboard_app = app
+            app.mainloop()
+            self._dashboard_app = None
+
+        self._dashboard_thread = threading.Thread(target=_run, daemon=True)
         self._dashboard_thread.start()
 
     def _toggle_pause_from_dashboard(self) -> None:
