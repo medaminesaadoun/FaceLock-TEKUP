@@ -127,6 +127,31 @@ class TestRunner(tk.Tk):
         right.pack(side="left", fill="y", anchor="n")
         right.pack_propagate(False)
 
+        # Buttons anchored to bottom so they're always visible regardless of
+        # how many test rows are above them.
+        btn_frame = tk.Frame(right, bg="#111122")
+        btn_frame.pack(side="bottom", fill="x", pady=(8, 0))
+
+        self._summary_var = tk.StringVar(master=self, value="")
+        tk.Label(btn_frame, textvariable=self._summary_var,
+                 font=("Segoe UI", 9), bg="#111122",
+                 fg="#888888", justify="left").pack(anchor="w", pady=(0, 6))
+
+        self._btn_unit = tk.Button(
+            btn_frame, text="▶  Run Unit Tests",
+            font=("Segoe UI", 9, "bold"), relief="flat", cursor="hand2",
+            bg="#1a73e8", fg="white", padx=10, pady=6,
+            command=lambda: self._start(camera=False))
+        self._btn_unit.pack(fill="x", pady=(0, 4))
+
+        self._btn_all = tk.Button(
+            btn_frame, text="▶  Run All  (camera required)",
+            font=("Segoe UI", 9, "bold"), relief="flat", cursor="hand2",
+            bg="#1a8f1a", fg="white", padx=10, pady=6,
+            command=lambda: self._start(camera=True))
+        self._btn_all.pack(fill="x")
+
+        # Test rows packed after buttons so they fill remaining space.
         tk.Label(right, text="Tests", font=("Segoe UI", 11, "bold"),
                  bg="#111122", fg="white").pack(anchor="w", pady=(0, 6))
 
@@ -145,28 +170,6 @@ class TestRunner(tk.Tk):
             lbl.pack(side="left", padx=(6, 0), fill="x", expand=True)
 
             self._rows[tc.tc_id] = {"dot": dot, "label": lbl, "tc": tc}
-
-        btn_frame = tk.Frame(right, bg="#111122")
-        btn_frame.pack(fill="x", pady=(10, 0))
-
-        self._btn_unit = tk.Button(
-            btn_frame, text="▶  Run Unit Tests",
-            font=("Segoe UI", 9, "bold"), relief="flat", cursor="hand2",
-            bg="#1a73e8", fg="white", padx=10, pady=6,
-            command=lambda: self._start(camera=False))
-        self._btn_unit.pack(fill="x", pady=(0, 6))
-
-        self._btn_all = tk.Button(
-            btn_frame, text="▶  Run All (camera required)",
-            font=("Segoe UI", 9, "bold"), relief="flat", cursor="hand2",
-            bg="#1a8f1a", fg="white", padx=10, pady=6,
-            command=lambda: self._start(camera=True))
-        self._btn_all.pack(fill="x")
-
-        self._summary_var = tk.StringVar(master=self, value="")
-        tk.Label(right, textvariable=self._summary_var,
-                 font=("Segoe UI", 9), bg="#111122",
-                 fg="#888888", justify="left").pack(anchor="w", pady=(10, 0))
 
         # bottom padding
         tk.Frame(self, bg="#111122", height=12).pack()
