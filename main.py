@@ -126,6 +126,11 @@ def cmd_debug(_args) -> None:
     run()
 
 
+def cmd_test_runner(_args) -> None:
+    from test_runner import run
+    run()
+
+
 # ---------------------------------------------------------------------------
 # CLI parser
 # ---------------------------------------------------------------------------
@@ -182,7 +187,8 @@ def main() -> None:
     sub.add_parser("tray",      help="Start the system tray status indicator")
     sub.add_parser("mode-a",    help="Mode A — session locker")
     sub.add_parser("mode-c1",   help="Mode C1 — post-login startup gate")
-    sub.add_parser("debug",     help="Live camera debug view with detection overlay")
+    sub.add_parser("debug",        help="Live camera debug view with detection overlay")
+    sub.add_parser("test-runner",  help="Interactive GUI test runner with live camera feed")
     sub.add_parser("install",   help="Install Windows Task Scheduler tasks")
     sub.add_parser("uninstall", help="Remove Windows Task Scheduler tasks")
 
@@ -196,7 +202,8 @@ def main() -> None:
         "service":   cmd_service,
         "enroll":    cmd_enroll,
         "tray":      cmd_tray,
-        "debug":     cmd_debug,
+        "debug":        cmd_debug,
+        "test-runner":  cmd_test_runner,
         "mode-a":    cmd_mode_a,
         "mode-b":    cmd_mode_b,
         "mode-c1":   cmd_mode_c1,
