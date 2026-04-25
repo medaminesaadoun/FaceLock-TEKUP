@@ -12,11 +12,11 @@ import threading
 import time
 import tkinter as tk
 from tkinter import ttk
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import cv2
 import numpy as np
-from PIL import Image, ImageTk
+from PIL import Image, ImageDraw, ImageTk
 
 import config
 from modules.face_detector import FaceDetector
@@ -29,19 +29,23 @@ from modules.authenticator import Authenticator
 PREVIEW_W = 480
 PREVIEW_H = 360
 
-# Dot colors per test state
 _COLORS = {
-    "pending": ("#555555", "#777777"),   # dot, label
+    "pending": ("#555555", "#777777"),
     "running": ("#e6a817", "white"),
     "pass":    ("#1a8f1a", "#88ff88"),
     "fail":    ("#cc0000", "#ff8888"),
     "skip":    ("#444444", "#666666"),
 }
 
+# Tests that require a live face embedding — show the visualisation overlay.
+_EMBEDDING_TESTS = {"TC1", "TC6", "TC8", "TC2", "TC7"}
+
+# Auth tests that need the enrollment phase to have run first.
+_AUTH_TESTS = {"TC2", "TC3", "TC7"}
+
 
 @dataclass
 class TC:
-    """A single test case."""
     tc_id: str
     name: str
     needs_camera: bool = True
@@ -49,16 +53,15 @@ class TC:
     message: str = ""
 
 
-# Ordered list of all test cases shown in the UI.
 ALL_TESTS: list[TC] = [
-    TC("TC4",  "Wrong face rejects auth",          needs_camera=False),
+    TC("TC4",  "Wrong face rejects auth",         needs_camera=False),
     TC("TC5a", "Face detected in live frame"),
     TC("TC5b", "Bounding box valid shape"),
     TC("TC5c", "Exactly one face in frame"),
     TC("TC1",  "Embedding is 128-dimensional"),
     TC("TC6",  "Embedding serialization roundtrip"),
     TC("TC8",  "Same face matches within tolerance"),
-    TC("Enrl", "Session enrollment (30 frames)",   needs_camera=True),
+    TC("Enrl", "Session enrollment (30 frames)"),
     TC("TC2",  "Auth on consecutive matches"),
     TC("TC3",  "Streak resets on no face"),
     TC("TC7",  "Auth after serialization"),
@@ -76,20 +79,21 @@ class TestRunner(tk.Tk):
         self._frame_lock = threading.Lock()
         self._latest_frame: np.ndarray | None = None
         self._boxes: list = []
+        self._embedding: np.ndarray | None = None  # shown as overlay when set
 
         self._detector = FaceDetector(config.TFLITE_MODEL_PATH)
-        self._enrolled: np.ndarray | None = None  # set during enrollment phase
+        self._enrolled: np.ndarray | None = None
 
-        # Per-TC UI row refs: tc_id → {dot, label}
+        # Per-TC UI row refs: tc_id → {dot, label, var}
         self._rows: dict[str, dict] = {}
 
         self._build()
         threading.Thread(target=self._camera_loop, daemon=True).start()
-        self._tick()  # starts the UI refresh loop
+        self._tick()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ------------------------------------------------------------------
-    # UI
+    # UI construction
     # ------------------------------------------------------------------
 
     def _build(self) -> None:
@@ -104,7 +108,7 @@ class TestRunner(tk.Tk):
         body = tk.Frame(self, bg="#111122", padx=16, pady=4)
         body.pack(fill="both", expand=True)
 
-        # ---- Left: camera + status ----
+        # ---- Left: camera feed ----
         left = tk.Frame(body, bg="#111122")
         left.pack(side="left", anchor="n", padx=(0, 16))
 
@@ -113,7 +117,8 @@ class TestRunner(tk.Tk):
                                   highlightbackground="#333355")
         self._canvas.pack()
 
-        self._status_var = tk.StringVar(master=self, value="Ready — press a Run button")
+        self._status_var = tk.StringVar(master=self,
+                                        value="Ready — select tests and press Run")
         tk.Label(left, textvariable=self._status_var,
                  font=("Segoe UI", 10), bg="#111122", fg="#aaaaaa",
                  wraplength=PREVIEW_W, justify="center").pack(pady=(8, 4))
@@ -123,63 +128,88 @@ class TestRunner(tk.Tk):
                         length=PREVIEW_W, mode="determinate").pack()
 
         # ---- Right: test list + buttons ----
-        right = tk.Frame(body, bg="#111122", width=270)
+        right = tk.Frame(body, bg="#111122", width=290)
         right.pack(side="left", fill="y", anchor="n")
         right.pack_propagate(False)
 
-        # Buttons anchored to bottom so they're always visible regardless of
-        # how many test rows are above them.
+        # Buttons pinned to the bottom.
         btn_frame = tk.Frame(right, bg="#111122")
-        btn_frame.pack(side="bottom", fill="x", pady=(8, 0))
+        btn_frame.pack(side="bottom", fill="x")
 
         self._summary_var = tk.StringVar(master=self, value="")
         tk.Label(btn_frame, textvariable=self._summary_var,
                  font=("Segoe UI", 9), bg="#111122",
-                 fg="#888888", justify="left").pack(anchor="w", pady=(0, 6))
+                 fg="#888888", justify="left").pack(anchor="w", pady=(0, 4))
+
+        self._btn_selected = tk.Button(
+            btn_frame, text="▶  Run Selected",
+            font=("Segoe UI", 9, "bold"), relief="flat", cursor="hand2",
+            bg="#1a73e8", fg="white", padx=10, pady=6,
+            command=lambda: self._start(mode="selected"))
+        self._btn_selected.pack(fill="x", pady=(0, 3))
 
         self._btn_unit = tk.Button(
             btn_frame, text="▶  Run Unit Tests",
             font=("Segoe UI", 9, "bold"), relief="flat", cursor="hand2",
-            bg="#1a73e8", fg="white", padx=10, pady=6,
-            command=lambda: self._start(camera=False))
-        self._btn_unit.pack(fill="x", pady=(0, 4))
+            bg="#555577", fg="white", padx=10, pady=6,
+            command=lambda: self._start(mode="unit"))
+        self._btn_unit.pack(fill="x", pady=(0, 3))
 
         self._btn_all = tk.Button(
             btn_frame, text="▶  Run All  (camera required)",
             font=("Segoe UI", 9, "bold"), relief="flat", cursor="hand2",
             bg="#1a8f1a", fg="white", padx=10, pady=6,
-            command=lambda: self._start(camera=True))
+            command=lambda: self._start(mode="all"))
         self._btn_all.pack(fill="x")
 
-        # Test rows packed after buttons so they fill remaining space.
+        # Select-all / deselect-all row.
+        sel_row = tk.Frame(right, bg="#111122")
+        sel_row.pack(side="bottom", fill="x", pady=(0, 4))
+
+        tk.Button(sel_row, text="Select all", font=("Segoe UI", 8),
+                  bg="#222233", fg="#aaaaaa", relief="flat", cursor="hand2",
+                  command=self._select_all).pack(side="left", padx=(0, 6))
+        tk.Button(sel_row, text="Deselect all", font=("Segoe UI", 8),
+                  bg="#222233", fg="#aaaaaa", relief="flat", cursor="hand2",
+                  command=self._deselect_all).pack(side="left")
+
+        # Test rows.
         tk.Label(right, text="Tests", font=("Segoe UI", 11, "bold"),
                  bg="#111122", fg="white").pack(anchor="w", pady=(0, 6))
 
         for tc in ALL_TESTS:
-            row_frame = tk.Frame(right, bg="#1e1e32", padx=8, pady=5)
+            row_frame = tk.Frame(right, bg="#1e1e32", padx=8, pady=4)
             row_frame.pack(fill="x", pady=(0, 3))
+
+            # Checkbox for individual selection.
+            var = tk.BooleanVar(master=self, value=True)
+            cb = tk.Checkbutton(
+                row_frame, variable=var,
+                bg="#1e1e32", activebackground="#1e1e32",
+                selectcolor="#1e1e32", cursor="hand2")
+            cb.pack(side="left")
 
             dot = tk.Label(row_frame, text="●", font=("Segoe UI", 10),
                            bg="#1e1e32", fg="#555555")
             dot.pack(side="left")
 
+            cam_badge = "" if not tc.needs_camera else " 📷"
             lbl = tk.Label(row_frame,
-                           text=f"{tc.tc_id}  {tc.name}",
+                           text=f"{tc.tc_id}{cam_badge}  {tc.name}",
                            font=("Segoe UI", 9), bg="#1e1e32",
                            fg="#777777", anchor="w", justify="left")
-            lbl.pack(side="left", padx=(6, 0), fill="x", expand=True)
+            lbl.pack(side="left", padx=(4, 0), fill="x", expand=True)
 
-            self._rows[tc.tc_id] = {"dot": dot, "label": lbl, "tc": tc}
+            self._rows[tc.tc_id] = {
+                "dot": dot, "label": lbl, "tc": tc, "var": var}
 
-        # bottom padding
-        tk.Frame(self, bg="#111122", height=12).pack()
+        tk.Frame(self, bg="#111122", height=8).pack()
 
     # ------------------------------------------------------------------
     # Camera feed
     # ------------------------------------------------------------------
 
     def _camera_loop(self) -> None:
-        # Runs in a daemon thread — continuously captures frames.
         cap = cv2.VideoCapture(0)
         while self._alive:
             ret, frame = cap.read()
@@ -194,8 +224,53 @@ class TestRunner(tk.Tk):
             f = self._latest_frame
             return f.copy() if f is not None else None
 
+    def _draw_embedding_overlay(self, img: Image.Image,
+                                 emb: np.ndarray) -> Image.Image:
+        """Draw a 128-bar spectrum at the bottom of the frame.
+
+        Blue bars = positive values, red = negative. Height proportional to
+        magnitude. Gives a visual fingerprint of the face embedding.
+        """
+        w, h = img.size
+        strip_h = 48
+        bar_count = len(emb)          # 128
+        bar_w = max(1, (w - 16) // bar_count)
+        x_start = (w - bar_count * bar_w) // 2
+        center_y = h - strip_h // 2
+
+        overlay = img.copy()
+        draw = ImageDraw.Draw(overlay)
+
+        # Dark background strip.
+        draw.rectangle([0, h - strip_h, w, h], fill=(0, 0, 20, 200))
+
+        # Baseline.
+        draw.line([x_start, center_y,
+                   x_start + bar_count * bar_w, center_y],
+                  fill=(80, 80, 120), width=1)
+
+        max_val = max(float(np.abs(emb).max()), 0.01)
+        max_bar = strip_h // 2 - 4
+
+        for i, val in enumerate(emb):
+            x = x_start + i * bar_w
+            bar_len = int(float(val) / max_val * max_bar)
+            color = (80, 140, 255) if val >= 0 else (255, 80, 80)
+            if bar_len > 0:
+                draw.rectangle(
+                    [x, center_y - bar_len, x + max(bar_w - 1, 1), center_y],
+                    fill=color)
+            elif bar_len < 0:
+                draw.rectangle(
+                    [x, center_y, x + max(bar_w - 1, 1), center_y - bar_len],
+                    fill=color)
+
+        # Label.
+        draw.text((4, h - strip_h + 2), "embedding",
+                  fill=(100, 100, 150))
+        return overlay
+
     def _tick(self) -> None:
-        # Runs on the tkinter event loop — updates the displayed camera frame.
         if not self._alive:
             return
         frame = self._get_frame()
@@ -205,26 +280,37 @@ class TestRunner(tk.Tk):
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             img = Image.fromarray(rgb)
             img.thumbnail((PREVIEW_W, PREVIEW_H))
+
+            # Draw embedding overlay when an embedding is available.
+            emb = self._embedding
+            if emb is not None:
+                img = self._draw_embedding_overlay(img, emb)
+
             photo = ImageTk.PhotoImage(img)
             self._canvas.create_image(0, 0, anchor="nw", image=photo)
-            self._canvas._p = photo  # prevent GC
+            self._canvas._p = photo
         self.after(33, self._tick)
 
     # ------------------------------------------------------------------
-    # Test state helpers (all thread-safe via after())
+    # Checkbox helpers
+    # ------------------------------------------------------------------
+
+    def _select_all(self) -> None:
+        for row in self._rows.values():
+            row["var"].set(True)
+
+    def _deselect_all(self) -> None:
+        for row in self._rows.values():
+            row["var"].set(False)
+
+    # ------------------------------------------------------------------
+    # Test state helpers
     # ------------------------------------------------------------------
 
     def _ui(self, fn) -> None:
-        """Schedule fn() on the tkinter thread."""
         self.after(0, fn)
 
-    def _set_status(self, text: str, color: str = "#aaaaaa") -> None:
-        self._ui(lambda: self._status_var.set(text) or
-                 self._status_var._root.nametowidget(  # type: ignore
-                     self._status_var._root.tk.call(
-                         "info", "vars")).configure(fg=color)
-                 if False else None)
-        # Simpler: just set the var; color updated separately
+    def _set_status(self, text: str) -> None:
         self._ui(lambda t=text: self._status_var.set(t))
 
     def _set_progress(self, pct: float) -> None:
@@ -238,7 +324,8 @@ class TestRunner(tk.Tk):
         tc.status = status
         tc.message = msg
         dot_c, lbl_c = _COLORS.get(status, _COLORS["pending"])
-        label_text = f"{tc.tc_id}  {tc.name}"
+        cam_badge = "" if not tc.needs_camera else " 📷"
+        label_text = f"{tc.tc_id}{cam_badge}  {tc.name}"
         if msg:
             label_text += f"\n       {msg}"
 
@@ -249,29 +336,55 @@ class TestRunner(tk.Tk):
 
     def _set_btns(self, enabled: bool) -> None:
         state = "normal" if enabled else "disabled"
-        self._ui(lambda: self._btn_unit.configure(state=state) or
-                 self._btn_all.configure(state=state))
+        self._ui(lambda s=state: [
+            b.configure(state=s)
+            for b in (self._btn_selected, self._btn_unit, self._btn_all)
+        ])
 
     # ------------------------------------------------------------------
     # Test runner
     # ------------------------------------------------------------------
 
-    def _start(self, camera: bool) -> None:
+    def _start(self, mode: str) -> None:
+        """mode: 'selected' | 'unit' | 'all'"""
         for tc in ALL_TESTS:
             self._set_tc(tc.tc_id, "pending")
         self._set_progress(0)
         self._ui(lambda: self._summary_var.set(""))
         self._set_btns(False)
         self._enrolled = None
-        threading.Thread(target=self._run_all, args=(camera,), daemon=True).start()
+        self._embedding = None
 
-    def _run_all(self, camera: bool) -> None:
-        """Sequential test execution — runs in a daemon thread."""
-        results: list[str] = []   # "pass" / "fail" / "skip"
+        # Determine which TC IDs to actually run.
+        if mode == "unit":
+            wanted = {tc.tc_id for tc in ALL_TESTS if not tc.needs_camera}
+        elif mode == "all":
+            wanted = {tc.tc_id for tc in ALL_TESTS}
+        else:  # selected
+            wanted = {
+                tc_id for tc_id, row in self._rows.items()
+                if row["var"].get()
+            }
+
+        # Auto-include dependencies.
+        if wanted & _AUTH_TESTS:
+            wanted.add("Enrl")   # auth tests need enrollment
+        if "TC6" in wanted and "TC1" not in wanted:
+            wanted.add("TC1")    # TC6 needs TC1's embedding
+
+        threading.Thread(
+            target=self._run_all, args=(wanted,), daemon=True).start()
+
+    def _run_all(self, wanted: set[str]) -> None:
+        results: list[str] = []
         total = len(ALL_TESTS)
         done = 0
 
         def run(tc_id: str, fn) -> bool:
+            if tc_id not in wanted:
+                self._set_tc(tc_id, "skip", "not selected")
+                results.append("skip")
+                return False
             self._set_tc(tc_id, "running")
             try:
                 msg = fn() or ""
@@ -287,8 +400,8 @@ class TestRunner(tk.Tk):
                 results.append("fail")
                 return False
 
-        def skip(tc_id: str) -> None:
-            self._set_tc(tc_id, "skip", "skipped")
+        def skip(tc_id: str, reason: str = "dependency failed") -> None:
+            self._set_tc(tc_id, "skip", reason)
             results.append("skip")
 
         def tick(label: str = "") -> None:
@@ -296,10 +409,10 @@ class TestRunner(tk.Tk):
             done += 1
             self._set_progress(done / total * 100)
             if label:
-                self._ui(lambda l=label: self._status_var.set(l))
+                self._set_status(label)
 
-        # -- TC4: unit test, no camera --
-        self._ui(lambda: self._status_var.set("TC4: Testing impostor rejection…"))
+        # ---- TC4: unit test ----
+        self._set_status("TC4: Testing impostor rejection…")
 
         def _tc4():
             enrolled = np.random.rand(128).astype(np.float64)
@@ -313,21 +426,10 @@ class TestRunner(tk.Tk):
             assert not result, "Impostor was incorrectly granted access"
             return "Impostor correctly rejected"
 
-        run("TC4", _tc4)
-        tick()
+        run("TC4", _tc4); tick()
 
-        if not camera:
-            for tc in ALL_TESTS:
-                if tc.tc_id != "TC4":
-                    skip(tc.tc_id)
-            self._finish(results)
-            return
-
-        # -- TC5: detection --
-        self._ui(lambda: self._status_var.set("TC5: Look at the camera…"))
-
-        def _wait_for_face(timeout: float = 10.0) -> tuple:
-            """Return (small_frame, boxes) when exactly one face is in frame."""
+        # Helper: wait until exactly one face is in frame.
+        def _wait_face(timeout: float = 10.0):
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
                 frame = self._get_frame()
@@ -335,24 +437,25 @@ class TestRunner(tk.Tk):
                     small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
                     boxes = self._detector.find_faces(small)
                     self._boxes = [(x*2, y*2, w*2, h*2) for x, y, w, h in boxes]
-                    if len(boxes) >= 1:
+                    if boxes:
                         return small, boxes
                 time.sleep(0.05)
             raise AssertionError("No face detected after 10 s — check camera")
 
-        def _tc5a():
-            _, boxes = _wait_for_face()
-            return f"{len(boxes)} face(s) detected"
+        # ---- TC5a/b/c: detection ----
+        self._set_status("TC5: Look at the camera…")
 
+        def _tc5a():
+            _, boxes = _wait_face()
+            return f"{len(boxes)} face(s) detected"
         run("TC5a", _tc5a); tick()
 
         def _tc5b():
-            _, boxes = _wait_for_face()
+            _, boxes = _wait_face()
             for box in boxes:
-                assert len(box) == 4, f"Box has {len(box)} elements, expected 4"
+                assert len(box) == 4
                 assert all(isinstance(v, int) and v >= 0 for v in box)
             return "Shape (x, y, w, h) ✓"
-
         run("TC5b", _tc5b); tick()
 
         def _tc5c():
@@ -365,111 +468,112 @@ class TestRunner(tk.Tk):
                         return "has_exactly_one_face → True ✓"
                 time.sleep(0.05)
             raise AssertionError("has_exactly_one_face never returned True")
-
         run("TC5c", _tc5c); tick()
 
-        # -- TC1: embedding --
-        self._ui(lambda: self._status_var.set("TC1: Extracting embedding…"))
+        # ---- TC1: embedding (shows overlay) ----
+        self._set_status("TC1: Extracting face embedding…")
         live_emb: np.ndarray | None = None
 
         def _tc1():
             nonlocal live_emb
-            small, boxes = _wait_for_face()
+            small, boxes = _wait_face()
             if len(boxes) == 1:
                 emb = extract_embedding(small, boxes[0])
                 assert emb is not None, "extract_embedding returned None"
                 assert emb.shape == (128,), f"Expected (128,), got {emb.shape}"
                 live_emb = emb
-                return "128-d ✓"
-            raise AssertionError("Need exactly one face")
-
+                self._embedding = emb  # show overlay
+                return "128-d embedding extracted ✓"
+            raise AssertionError("Need exactly one face in frame")
         run("TC1", _tc1); tick()
 
-        # -- TC6: serialization (offline, uses live_emb) --
-        self._ui(lambda: self._status_var.set("TC6: Serialization roundtrip…"))
+        # ---- TC6: serialization ----
+        self._set_status("TC6: Serialization roundtrip…")
 
         def _tc6():
             assert live_emb is not None, "TC1 did not produce an embedding"
             restored = bytes_to_embedding(embedding_to_bytes(live_emb))
             assert np.allclose(live_emb, restored), "Mismatch after roundtrip"
+            self._embedding = restored  # show restored embedding
             return "bytes → embedding → bytes ✓"
-
         run("TC6", _tc6); tick()
 
-        # -- TC8: same face, two captures --
-        self._ui(lambda: self._status_var.set("TC8: Comparing two captures of the same face…"))
+        # ---- TC8: same-face match ----
+        self._set_status("TC8: Comparing two captures of the same face…")
 
         def _tc8():
             embs = []
             for _ in range(2):
-                small, boxes = _wait_for_face()
+                small, boxes = _wait_face()
                 if len(boxes) == 1:
                     emb = extract_embedding(small, boxes[0])
                     if emb is not None:
                         embs.append(emb)
+                        self._embedding = emb
                 time.sleep(0.3)
             assert len(embs) == 2, "Could not capture two embeddings"
             dist = float(np.linalg.norm(embs[0] - embs[1]))
             assert compare_embedding(embs[0], embs[1], config.DEFAULT_TOLERANCE), \
                 f"Distance {dist:.3f} > tolerance {config.DEFAULT_TOLERANCE}"
             return f"Distance {dist:.3f} ≤ {config.DEFAULT_TOLERANCE} ✓"
-
         run("TC8", _tc8); tick()
 
-        # -- Enrollment phase --
-        self._set_tc("Enrl", "running")
-        self._ui(lambda: self._status_var.set(
-            "Enrollment: hold still — capturing 30 frames…"))
-        embeddings: list[np.ndarray] = []
-        last_cap = 0.0
-        enroll_deadline = time.monotonic() + 90
-
-        while len(embeddings) < config.ENROLLMENT_FRAMES:
-            if time.monotonic() > enroll_deadline:
-                break
-            frame = self._get_frame()
-            if frame is None:
-                time.sleep(0.05)
-                continue
-            small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
-            boxes = self._detector.find_faces(small)
-            self._boxes = [(x*2, y*2, w*2, h*2) for x, y, w, h in boxes]
-            now = time.monotonic()
-            if (len(boxes) == 1
-                    and now - last_cap >= config.ENROLLMENT_CAPTURE_INTERVAL):
-                emb = extract_embedding(small, boxes[0])
-                if emb is not None:
-                    embeddings.append(emb)
-                    last_cap = now
-                    pct = len(embeddings) / config.ENROLLMENT_FRAMES * 100
-                    n = len(embeddings)
-                    self._set_progress(pct)
-                    self._ui(lambda n=n: self._status_var.set(
-                        f"Enrollment: {n}/{config.ENROLLMENT_FRAMES} frames captured"))
-            time.sleep(0.04)
-
-        if len(embeddings) >= config.ENROLLMENT_FRAMES:
-            self._enrolled = average_embeddings(embeddings)
-            self._set_tc("Enrl", "pass", f"{len(embeddings)} frames averaged")
-            results.append("pass")
+        # ---- Enrollment ----
+        if "Enrl" not in wanted:
+            skip("Enrl", "not selected")
+            tick()
         else:
-            self._set_tc("Enrl", "fail",
-                         f"Only {len(embeddings)}/{config.ENROLLMENT_FRAMES}")
-            results.append("fail")
-            for tc_id in ("TC2", "TC3", "TC7"):
-                skip(tc_id)
-            tick("Enrollment failed — auth tests skipped")
-            self._finish(results)
-            return
+            self._set_tc("Enrl", "running")
+            self._set_status("Enrollment: hold still — capturing 30 frames…")
+            embeddings: list[np.ndarray] = []
+            last_cap = 0.0
+            enroll_deadline = time.monotonic() + 90
 
-        tick()
+            while len(embeddings) < config.ENROLLMENT_FRAMES:
+                if time.monotonic() > enroll_deadline:
+                    break
+                frame = self._get_frame()
+                if frame is None:
+                    time.sleep(0.05)
+                    continue
+                small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+                boxes = self._detector.find_faces(small)
+                self._boxes = [(x*2, y*2, w*2, h*2) for x, y, w, h in boxes]
+                now = time.monotonic()
+                if (len(boxes) == 1
+                        and now - last_cap >= config.ENROLLMENT_CAPTURE_INTERVAL):
+                    emb = extract_embedding(small, boxes[0])
+                    if emb is not None:
+                        embeddings.append(emb)
+                        self._embedding = emb  # show overlay while enrolling
+                        last_cap = now
+                        n = len(embeddings)
+                        self._set_progress(n / config.ENROLLMENT_FRAMES * 100)
+                        self._set_status(
+                            f"Enrollment: {n}/{config.ENROLLMENT_FRAMES} frames")
+                time.sleep(0.04)
 
-        # -- TC2: auth consecutive --
-        self._ui(lambda: self._status_var.set(
-            "TC2: Look at the camera to authenticate…"))
+            if len(embeddings) >= config.ENROLLMENT_FRAMES:
+                self._enrolled = average_embeddings(embeddings)
+                self._embedding = self._enrolled  # show averaged embedding
+                self._set_tc("Enrl", "pass",
+                             f"{len(embeddings)} frames averaged")
+                results.append("pass")
+            else:
+                self._set_tc("Enrl", "fail",
+                             f"Only {len(embeddings)}/{config.ENROLLMENT_FRAMES}")
+                results.append("fail")
+                for tc_id in ("TC2", "TC3", "TC7"):
+                    skip(tc_id, "enrollment failed")
+                self._finish(results)
+                return
+            tick()
+
+        # ---- TC2: auth consecutive ----
+        self._set_status("TC2: Look at the camera to authenticate…")
 
         def _tc2():
-            assert self._enrolled is not None
+            assert self._enrolled is not None, "No enrolled embedding"
             auth = Authenticator(self._enrolled)
             deadline = time.monotonic() + config.AUTO_LOCK_TIMEOUT_SECONDS
             while time.monotonic() < deadline:
@@ -483,27 +587,25 @@ class TestRunner(tk.Tk):
                 if len(boxes) == 1:
                     emb = extract_embedding(small, boxes[0])
                     if emb is not None:
+                        self._embedding = emb
                         dist = float(np.linalg.norm(self._enrolled - emb))
-                        self._ui(lambda d=dist: self._status_var.set(
-                            f"TC2: Authenticating… distance {d:.3f}"))
+                        self._set_status(
+                            f"TC2: Authenticating… distance {dist:.3f}")
                         if auth.feed(emb):
                             return f"Authenticated — distance {dist:.3f}"
                 else:
                     auth.reset()
                 time.sleep(0.1)
             raise AssertionError(
-                f"Auth timed out — face not recognized within "
-                f"{config.AUTO_LOCK_TIMEOUT_SECONDS}s")
-
+                f"Auth timed out after {config.AUTO_LOCK_TIMEOUT_SECONDS}s")
         run("TC2", _tc2); tick()
 
-        # -- TC3: streak reset --
-        self._ui(lambda: self._status_var.set("TC3: Testing streak reset…"))
+        # ---- TC3: streak reset ----
+        self._set_status("TC3: Testing streak reset…")
 
         def _tc3():
-            assert self._enrolled is not None
+            assert self._enrolled is not None, "No enrolled embedding"
             auth = Authenticator(self._enrolled)
-            # Build a partial streak
             attempts = 0
             while auth.streak < config.CONSECUTIVE_FRAMES_REQUIRED - 1 and attempts < 30:
                 frame = self._get_frame()
@@ -517,22 +619,19 @@ class TestRunner(tk.Tk):
                 attempts += 1
                 time.sleep(0.1)
             streak_before = auth.streak
-            assert streak_before > 0, "Could not build partial streak — check face visibility"
-            # Blank frame has no faces
+            assert streak_before > 0, "Could not build partial streak"
             blank = np.zeros((240, 320, 3), dtype=np.uint8)
             assert self._detector.find_faces(blank) == []
             auth.reset()
             assert auth.streak == 0
             return f"Streak {streak_before} → 0 ✓"
-
         run("TC3", _tc3); tick()
 
-        # -- TC7: auth after serialization --
-        self._ui(lambda: self._status_var.set(
-            "TC7: Auth with serialized embedding — look at camera…"))
+        # ---- TC7: auth after serialization ----
+        self._set_status("TC7: Auth with serialized embedding…")
 
         def _tc7():
-            assert self._enrolled is not None
+            assert self._enrolled is not None, "No enrolled embedding"
             restored = bytes_to_embedding(embedding_to_bytes(self._enrolled))
             auth = Authenticator(restored)
             deadline = time.monotonic() + config.AUTO_LOCK_TIMEOUT_SECONDS
@@ -547,28 +646,27 @@ class TestRunner(tk.Tk):
                 if len(boxes) == 1:
                     emb = extract_embedding(small, boxes[0])
                     if emb is not None:
+                        self._embedding = emb
                         if auth.feed(emb):
                             return "Serialized embedding authenticated ✓"
                 else:
                     auth.reset()
                 time.sleep(0.1)
             raise AssertionError("Auth failed after serialization roundtrip")
-
         run("TC7", _tc7); tick()
 
         self._finish(results)
 
     def _finish(self, results: list[str]) -> None:
         self._boxes = []
+        self._embedding = None  # clear overlay
         passed  = results.count("pass")
         failed  = results.count("fail")
         skipped = results.count("skip")
-        color = "#1a8f1a" if failed == 0 else "#cc0000"
         summary = f"{passed} passed  {failed} failed  {skipped} skipped"
-        self._ui(lambda s=summary, c=color: (
-            self._status_var.set("Done — " + s),
-            self._summary_var.set(s),
-        ))
+        color_word = "Done" if failed == 0 else "Failed"
+        self._set_status(f"{color_word} — {summary}")
+        self._ui(lambda s=summary: self._summary_var.set(s))
         self._set_btns(True)
 
     def _on_close(self) -> None:
