@@ -587,9 +587,12 @@ class StatusIndicator:
                 except Exception:
                     pass
         # Wait for all threads so their interpreters are fully torn down.
+        # Skip the current thread to avoid deadlock when called from within
+        # a secondary window thread (e.g. settings closing dashboard).
+        current = threading.current_thread()
         for _, thread_attr in pairs:
             t = getattr(self, thread_attr, None)
-            if t and t.is_alive():
+            if t and t.is_alive() and t is not current:
                 t.join(timeout=1.5)
 
     def _refresh_icon(self) -> None:
@@ -642,6 +645,7 @@ class StatusIndicator:
             return
 
         def _run() -> None:
+            self._close_all_windows()
             from ui.dashboard import Dashboard
             app = Dashboard(
                 self._locked, self._paused,
@@ -666,6 +670,9 @@ class StatusIndicator:
         self._refresh_icon()
 
     def _do_open_settings(self) -> None:
+        # Close any other open secondary window first — two tk.Tk interpreters
+        # in different threads cause Tcl_AsyncDelete crashes.
+        self._close_all_windows()
         from ui.settings_window import SettingsWindow
         app = SettingsWindow()
         self._settings_app = app
@@ -673,6 +680,7 @@ class StatusIndicator:
         self._settings_app = None
 
     def _do_open_enroll(self) -> None:
+        self._close_all_windows()
         from ui.enrollment_window import EnrollmentWindow
         app = EnrollmentWindow()
         self._enroll_app = app

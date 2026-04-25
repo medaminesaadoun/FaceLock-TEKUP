@@ -389,16 +389,16 @@ class Dashboard(tk.Tk):
         self._pause_btn.configure(text=self._pause_label())
 
     def _settings(self) -> None:
+        # The settings thread calls _close_all_windows() which destroys this
+        # dashboard — no need to schedule a redundant destroy here.
         self._on_open_settings()
-        self.after(50, self.destroy)
 
     def _enroll(self) -> None:
         self._on_open_enroll()
-        self.after(50, self.destroy)
 
     def _debug(self) -> None:
         self._on_open_debug()
-        self.after(50, self.destroy)
+        self.after(50, self.destroy)  # debug is a subprocess, so close manually
 
     def _quit(self) -> None:
         self._on_quit()
