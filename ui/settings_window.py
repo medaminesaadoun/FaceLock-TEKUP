@@ -114,12 +114,15 @@ class SettingsWindow(tk.Tk):
             command=self._on_mode_change,
         ).pack(side="left")
 
-        # Simple preset frame.
-        self._simple_frame = ttk.Frame(outer)
+        # Fixed container — always occupies the same slot in outer so that
+        # pack_forget/pack inside it doesn't scramble the surrounding sections.
+        self._mode_container = ttk.Frame(outer)
+        self._mode_container.pack(fill="x", pady=(0, 8))
+
+        self._simple_frame = ttk.Frame(self._mode_container)
         self._build_simple_content(self._simple_frame)
 
-        # Advanced sliders frame.
-        self._advanced_frame = ttk.Frame(outer)
+        self._advanced_frame = ttk.Frame(self._mode_container)
         self._build_advanced_content(self._advanced_frame)
 
         # Show whichever frame matches the current mode.
@@ -270,14 +273,14 @@ class SettingsWindow(tk.Tk):
         ttk.Separator(parent, orient="horizontal").pack(fill="x", pady=(0, 8))
 
     def _apply_mode_visibility(self) -> None:
-        """Show the correct frame for the current mode."""
+        """Show the correct frame inside the fixed mode container."""
         if self._mode_var.get() == "simple":
             self._advanced_frame.pack_forget()
-            self._simple_frame.pack(fill="x", pady=(0, 8))
+            self._simple_frame.pack(fill="x")
         else:
             self._simple_frame.pack_forget()
-            self._advanced_frame.pack(fill="x", pady=(0, 8))
-        # Resize window to fit new content.
+            self._advanced_frame.pack(fill="x")
+        # Let tkinter recalculate window height for the new content.
         self.geometry("")
 
     def _on_mode_change(self) -> None:
