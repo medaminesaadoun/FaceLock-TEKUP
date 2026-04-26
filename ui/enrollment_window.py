@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw, ImageTk
 
 import config
 from modules.gdpr import get_consent_text, record_consent, has_consent, erase_user_data
+from modules.database import update_user_fallback
 from modules.ipc import make_client, send, recv
 from ui._theme import apply as apply_theme, center as center_window
 
@@ -192,7 +193,16 @@ class EnrollmentWindow(tk.Tk):
             return
 
         if not has_consent(config.DB_PATH, self._username):
+            # First-time enrollment — create user record with consent.
             record_consent(
+                config.DB_PATH,
+                self._username,
+                self._fallback.get(),
+                pin_hash,
+            )
+        else:
+            # Re-enrollment — update fallback/PIN in case user changed them.
+            update_user_fallback(
                 config.DB_PATH,
                 self._username,
                 self._fallback.get(),

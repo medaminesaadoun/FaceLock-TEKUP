@@ -36,13 +36,16 @@ def _detect_preset(settings: dict) -> str:
 
 
 class SettingsWindow(tk.Tk):
-    def __init__(self) -> None:
+    def __init__(self, on_re_enroll=None) -> None:
         super().__init__()
         self.title("FaceLock — Settings")
         self.resizable(False, False)
         apply_theme(self)
         self._username = getpass.getuser()
         self._settings = load_settings(config.SETTINGS_PATH)
+        # Callback supplied by StatusIndicator so re-enroll goes through the
+        # proper tracked window path instead of spawning an untracked thread.
+        self._on_re_enroll = on_re_enroll
         # Track slider vars: (key, IntVar, StringVar_display, trace_id)
         self._slider_vars: list[tuple] = []
         self._build_ui()
@@ -321,9 +324,16 @@ class SettingsWindow(tk.Tk):
     # ------------------------------------------------------------------
 
     def _re_enroll(self) -> None:
-        from ui.enrollment_window import launch as launch_enroll
-        self.destroy()
-        threading.Thread(target=launch_enroll, daemon=True).start()
+        if self._on_re_enroll:
+            # Use the StatusIndicator callback so enrollment goes through the
+            # tracked _open_enrollment path — avoids untracked tk.Tk threads.
+            self.destroy()
+            self._on_re_enroll()
+        else:
+            # Fallback for standalone launch (python -m ui.settings_window).
+            from ui.enrollment_window import launch as launch_enroll
+            self.destroy()
+            threading.Thread(target=launch_enroll, daemon=True).start()
 
     def _delete_data(self) -> None:
         if not messagebox.askyesno(

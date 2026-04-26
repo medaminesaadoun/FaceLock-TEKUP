@@ -8,6 +8,8 @@ import json
 import os
 import signal
 import time
+import ctypes
+import ctypes.wintypes
 from datetime import datetime
 
 import bcrypt
@@ -17,6 +19,53 @@ import pystray
 import config
 from modules.database import get_user
 from modules.ipc import make_client, send, recv
+
+
+# ---------------------------------------------------------------------------
+# Low-level keyboard hook — blocks Alt+Tab and Win key at the OS level so
+# they cannot switch away from the lock overlay.  Must be installed and
+# uninstalled from the same thread that runs a Windows message loop (tkinter
+# mainloop qualifies).
+# ---------------------------------------------------------------------------
+
+_WH_KEYBOARD_LL = 13
+_WM_KEYDOWN     = 0x0100
+_WM_SYSKEYDOWN  = 0x0104
+_VK_BLOCK = {0x09, 0x5B, 0x5C}  # Tab, LWin, RWin
+
+
+class _KBDLLHOOKSTRUCT(ctypes.Structure):
+    _fields_ = [
+        ("vkCode",      ctypes.wintypes.DWORD),
+        ("scanCode",    ctypes.wintypes.DWORD),
+        ("flags",       ctypes.wintypes.DWORD),
+        ("time",        ctypes.wintypes.DWORD),
+        ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+    ]
+
+
+_HOOKPROC = ctypes.WINFUNCTYPE(
+    ctypes.c_int, ctypes.c_int,
+    ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM)
+
+
+def _install_kb_hook():
+    """Install WH_KEYBOARD_LL hook; return (hook_handle, callback_ref)."""
+    def _handler(nCode, wParam, lParam):
+        if nCode >= 0 and wParam in (_WM_KEYDOWN, _WM_SYSKEYDOWN):
+            kb = ctypes.cast(lParam, ctypes.POINTER(_KBDLLHOOKSTRUCT)).contents
+            if kb.vkCode in _VK_BLOCK:
+                return 1  # swallow — do not pass to next hook
+        return ctypes.windll.user32.CallNextHookEx(None, nCode, wParam, lParam)
+
+    fn   = _HOOKPROC(_handler)
+    hook = ctypes.windll.user32.SetWindowsHookExW(_WH_KEYBOARD_LL, fn, None, 0)
+    return hook, fn  # fn must stay alive to prevent GC
+
+
+def _uninstall_kb_hook(hook) -> None:
+    if hook:
+        ctypes.windll.user32.UnhookWindowsHookEx(hook)
 
 
 def _make_tray_icon(color: str) -> Image.Image:
@@ -209,7 +258,15 @@ class LockOverlay:
         threading.Thread(
             target=self._auth_loop, args=(username,), daemon=True).start()
 
-        root.mainloop()
+        # Install a low-level keyboard hook to block Alt+Tab and the Win key.
+        # tkinter bindings only intercept events the app receives — shell-level
+        # shortcuts like Alt+Tab bypass them entirely. WH_KEYBOARD_LL intercepts
+        # keystrokes before any application sees them.
+        _kb_hook, _kb_fn = _install_kb_hook()
+        try:
+            root.mainloop()
+        finally:
+            _uninstall_kb_hook(_kb_hook)
 
         # Clean up after window closes (auth success or hide() called).
         self._running = False
@@ -674,7 +731,8 @@ class StatusIndicator:
         # in different threads cause Tcl_AsyncDelete crashes.
         self._close_all_windows()
         from ui.settings_window import SettingsWindow
-        app = SettingsWindow()
+        # Pass enrollment callback so re-enroll goes through the tracked path.
+        app = SettingsWindow(on_re_enroll=lambda: self._open_enrollment(None, None))
         self._settings_app = app
         app.mainloop()
         self._settings_app = None

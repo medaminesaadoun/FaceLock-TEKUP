@@ -69,6 +69,19 @@ def get_user(db_path: str, username: str) -> Optional[dict]:
         return dict(row) if row else None
 
 
+def update_user_fallback(db_path: str, username: str,
+                         fallback: str, pin_hash: Optional[str]) -> None:
+    """Update fallback method and PIN hash for an already-enrolled user.
+    Called during re-enrollment when the user changes their fallback choice."""
+    with closing(get_connection(db_path)) as conn:
+        conn.execute(
+            "UPDATE users SET fallback_method = ?, pin_hash = ? "
+            "WHERE windows_username = ?",
+            (fallback, pin_hash, username)
+        )
+        conn.commit()
+
+
 def save_embedding(db_path: str, user_id: int, encrypted_embedding: bytes) -> None:
     now = datetime.now(timezone.utc).isoformat()
     with closing(get_connection(db_path)) as conn:
