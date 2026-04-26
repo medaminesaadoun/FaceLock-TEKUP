@@ -152,6 +152,7 @@ class Dashboard(tk.Tk):
         center_window(self)
         self.bind("<FocusOut>", self._on_focus_out)
         self.after(2000, self._refresh)
+        self.after(500, self._refresh_camera)  # first camera check shortly after open
 
     # ------------------------------------------------------------------
     # Layout
@@ -196,6 +197,12 @@ class Dashboard(tk.Tk):
                                     background="#f4f4f4")
         self._status_dot.pack(anchor="w", pady=(2, 0))
         self._update_status_card()
+
+        # Camera status line — updated every 5 s via _refresh_camera().
+        self._camera_var = tk.StringVar(master=self, value="📷  Checking camera…")
+        tk.Label(self._status_frame, textvariable=self._camera_var,
+                 font=("Segoe UI", 9), background="#f4f4f4",
+                 foreground="#888888").pack(anchor="w", pady=(2, 0))
 
         # -- Two-column card: Account | Today ----------------------------
         two_col = tk.Frame(body, bd=1, relief="solid", bg="#f4f4f4")
@@ -359,6 +366,38 @@ class Dashboard(tk.Tk):
     def _enroll_label(self) -> str:
         return "Re-enroll" if has_consent(config.DB_PATH, self._username) else "Enroll"
 
+    def _refresh_camera(self) -> None:
+        """Check camera availability via IPC and update the status label."""
+        if not self._camera_var:
+            return
+        try:
+            conn = make_client()
+            send(conn, {"cmd": "check_camera"})
+            result = recv(conn)
+            conn.close()
+            if result.get("ok"):
+                self._camera_var.set("📷  Camera ready")
+                # Update label colour to green.
+                for w in self._status_frame.winfo_children():
+                    if (isinstance(w, tk.Label)
+                            and hasattr(self, "_camera_var")
+                            and w.cget("textvariable") == str(self._camera_var)):
+                        w.configure(foreground="#1a8f1a")
+                        break
+            else:
+                reason = result.get("reason", "unknown")
+                self._camera_var.set(f"📷  Camera unavailable — {reason}")
+                for w in self._status_frame.winfo_children():
+                    if (isinstance(w, tk.Label)
+                            and hasattr(self, "_camera_var")
+                            and w.cget("textvariable") == str(self._camera_var)):
+                        w.configure(foreground="#cc0000")
+                        break
+        except Exception:
+            if self._camera_var:
+                self._camera_var.set("📷  Core service unreachable")
+        self.after(5000, self._refresh_camera)
+
     def _refresh(self) -> None:
         """Periodic refresh of all live data (every 2 s)."""
         if self._last_auth_var:
@@ -388,6 +427,7 @@ class Dashboard(tk.Tk):
         self._last_auth_var = None
         self._stats_var = None
         self._recent_frame = None
+        self._camera_var = None
         super().destroy()
 
     # ------------------------------------------------------------------
