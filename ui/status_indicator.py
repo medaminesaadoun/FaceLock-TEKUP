@@ -600,7 +600,8 @@ class StatusIndicator:
         self._paused = False
         self._username = getpass.getuser()
         self._dashboard_thread: threading.Thread | None = None
-        self._dashboard_app = None  # live Dashboard tk.Tk
+        self._dashboard_app = None        # live Dashboard tk.Tk
+        self._dashboard_ready = threading.Event()  # set once app is assigned
         self._settings_thread: threading.Thread | None = None
         self._settings_app = None   # live SettingsWindow tk.Tk
         self._enroll_thread: threading.Thread | None = None
@@ -646,6 +647,14 @@ class StatusIndicator:
         Called before showing the overlay — having two tk.Tk interpreters
         alive in different threads causes Tcl_AsyncDelete crashes.
         """
+        # If the dashboard thread is alive but _dashboard_app is not yet set,
+        # wait for it — there is a brief race between Dashboard() construction
+        # and the assignment of _dashboard_app. Without this wait, the overlay
+        # could create its own Tcl interpreter while Dashboard's is mid-init.
+        if (self._dashboard_thread and self._dashboard_thread.is_alive()
+                and self._dashboard_app is None):
+            self._dashboard_ready.wait(timeout=2.0)
+
         pairs = [
             ("_dashboard_app", "_dashboard_thread"),
             ("_settings_app",  "_settings_thread"),
@@ -718,6 +727,7 @@ class StatusIndicator:
             return
 
         def _run() -> None:
+            self._dashboard_ready.clear()
             self._close_all_windows()
             from ui.dashboard import Dashboard
             app = Dashboard(
@@ -729,11 +739,13 @@ class StatusIndicator:
                 lambda: self._open_add_user(None, None),
                 lambda: threading.Thread(target=self._do_open_debug, daemon=True).start(),
             )
-            # Store reference so set_locked() can destroy it before the overlay
-            # creates a new Tcl interpreter in a different thread.
+            # Signal that the app is ready — _close_all_windows() waits for
+            # this before trying to call app.after(0, destroy) on the dashboard.
             self._dashboard_app = app
+            self._dashboard_ready.set()
             app.mainloop()
             self._dashboard_app = None
+            self._dashboard_ready.clear()
 
         self._dashboard_thread = threading.Thread(target=_run, daemon=True)
         self._dashboard_thread.start()

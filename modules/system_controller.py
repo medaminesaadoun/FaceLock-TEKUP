@@ -27,7 +27,12 @@ def _auth(username: str) -> bool:
 
 
 def _presence() -> bool:
-    return _request({"cmd": "presence"}).get("present", False)
+    # Fail safe: assume present on any IPC or camera error so a hardware
+    # glitch does not trigger a spurious lock.
+    try:
+        return _request({"cmd": "presence"}).get("present", True)
+    except Exception:
+        return True
 
 
 # ---------------------------------------------------------------------------

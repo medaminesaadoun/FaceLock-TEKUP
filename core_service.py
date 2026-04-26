@@ -190,17 +190,24 @@ def _handle_presence(detector: FaceDetector) -> dict:
         if _paused:
             return {"present": True}
     with _camera_lock:
-        cap = _open_camera()
         try:
-            ret, frame = cap.read()
-            if ret:
-                small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
-                present = detector.has_exactly_one_face(small)
-            else:
-                present = False
-            return {"present": present}
-        finally:
-            cap.release()
+            cap = _open_camera()
+            try:
+                ret, frame = cap.read()
+                if ret:
+                    small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+                    present = detector.has_exactly_one_face(small)
+                else:
+                    # Frame read failed — fail safe: assume user is present
+                    # to avoid spurious locks from a momentary camera glitch.
+                    present = True
+                return {"present": present}
+            finally:
+                cap.release()
+        except Exception:
+            # Camera unavailable (busy, driver issue, etc.) — assume present
+            # so Mode A does not lock the user out due to a hardware error.
+            return {"present": True}
 
 
 def _handle_pause() -> dict:
