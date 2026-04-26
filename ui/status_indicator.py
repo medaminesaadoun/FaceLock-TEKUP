@@ -648,11 +648,13 @@ class StatusIndicator:
         alive in different threads causes Tcl_AsyncDelete crashes.
         """
         # If the dashboard thread is alive but _dashboard_app is not yet set,
-        # wait for it — there is a brief race between Dashboard() construction
-        # and the assignment of _dashboard_app. Without this wait, the overlay
-        # could create its own Tcl interpreter while Dashboard's is mid-init.
+        # wait for it — the overlay must not create its own Tcl interpreter
+        # while Dashboard() is still being constructed.
+        # Skip this wait when we ARE the dashboard thread to avoid deadlock.
+        current = threading.current_thread()
         if (self._dashboard_thread and self._dashboard_thread.is_alive()
-                and self._dashboard_app is None):
+                and self._dashboard_app is None
+                and self._dashboard_thread is not current):
             self._dashboard_ready.wait(timeout=2.0)
 
         pairs = [
@@ -723,12 +725,18 @@ class StatusIndicator:
     # ------------------------------------------------------------------
 
     def _open_dashboard(self, icon=None, item=None) -> None:
+        # Don't open behind the lock overlay — overlay is fullscreen topmost
+        # and the dashboard would create a second Tcl interpreter → crash.
+        if self._locked:
+            return
         if self._dashboard_thread and self._dashboard_thread.is_alive():
             return
 
         def _run() -> None:
-            self._dashboard_ready.clear()
+            # Close others first, THEN clear the event so other threads
+            # waiting on _dashboard_ready.wait() are not starved.
             self._close_all_windows()
+            self._dashboard_ready.clear()
             from ui.dashboard import Dashboard
             app = Dashboard(
                 self._locked, self._paused,
