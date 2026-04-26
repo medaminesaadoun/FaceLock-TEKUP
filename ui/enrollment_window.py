@@ -17,7 +17,6 @@ from ui._theme import apply as apply_theme, center as center_window
 
 _PREVIEW_W = 320
 _PREVIEW_H = 240
-_STEPS = ["Consent", "Fallback", "Capture"]
 
 
 def _pose_prompt(progress: int, total: int) -> str:
@@ -38,11 +37,18 @@ def _check_camera_via_pipe() -> dict:
         conn.close()
 
 
-def _enroll_via_pipe(username: str, msg_cb) -> dict:
-    """Connect to core service, forward every streaming frame via msg_cb, return final result."""
+def _enroll_via_pipe(username: str, msg_cb,
+                     mode: str = "replace",
+                     face_name: str = "Primary") -> dict:
+    """Connect to core service, stream frames via msg_cb, return final result."""
     conn = make_client()
     try:
-        send(conn, {"cmd": "enroll", "username": username})
+        send(conn, {
+            "cmd": "enroll",
+            "username": username,
+            "mode": mode,
+            "face_name": face_name,
+        })
         while True:
             msg = recv(conn)
             if "jpeg" in msg:
@@ -54,28 +60,44 @@ def _enroll_via_pipe(username: str, msg_cb) -> dict:
 
 
 class EnrollmentWindow(tk.Tk):
-    def __init__(self) -> None:
+    def __init__(self, mode: str = "enroll") -> None:
+        """
+        mode: "enroll"    — full wizard (consent → fallback → capture), replaces existing face.
+              "add_user"  — abbreviated wizard (name → capture), appends a new face.
+        """
         super().__init__()
-        self.title("FaceLock — Enrollment")
+        self._mode = mode
+        self.title("FaceLock — Add User" if mode == "add_user" else "FaceLock — Enrollment")
         self.resizable(False, False)
         apply_theme(self)
         self._username = getpass.getuser()
-        self._fallback = tk.StringVar(master=self, value=config.DEFAULT_FALLBACK)
+        self._fallback = tk.StringVar(master=self, value=config.FALLBACK_WINDOWS)
         self._pin_var = tk.StringVar(master=self)
+        self._confirm_pin_var = tk.StringVar(master=self)
+        self._face_name_var = tk.StringVar(master=self, value="")
+
+        # Step labels differ by mode.
+        if mode == "add_user":
+            self._step_names = ["Name", "Capture"]
+        else:
+            self._step_names = ["Consent", "Fallback", "Capture"]
 
         self._build_chrome()
-        self._show_consent_step()
+
+        if mode == "add_user":
+            self._show_name_step()
+        else:
+            self._show_consent_step()
+
         center_window(self)
 
     def _build_chrome(self) -> None:
-        # Step indicator bar at the top
-        bar = tk.Frame(self, bg="#1a73e8", height=4)
-        bar.pack(fill="x")
+        tk.Frame(self, bg="#1a73e8", height=4).pack(fill="x")
 
         step_row = ttk.Frame(self, padding=(20, 10, 20, 0))
         step_row.pack(fill="x")
         self._step_labels: list[ttk.Label] = []
-        for i, name in enumerate(_STEPS):
+        for i, name in enumerate(self._step_names):
             if i:
                 ttk.Label(step_row, text="──", foreground="#cccccc").pack(side="left", padx=2)
             lbl = ttk.Label(step_row, text=f"{i + 1}. {name}")
@@ -96,7 +118,36 @@ class EnrollmentWindow(tk.Tk):
                 lbl.configure(foreground="#aaaaaa", font=("Segoe UI", 9))
 
     # ------------------------------------------------------------------
-    # Step 1 — GDPR consent
+    # Add-user mode: Name step
+    # ------------------------------------------------------------------
+
+    def _show_name_step(self) -> None:
+        self._clear()
+        self._set_step(0)
+        ttk.Label(self._frame_container, text="Name This Face",
+                  style="Section.TLabel").pack(anchor="w", pady=(0, 4))
+        ttk.Label(self._frame_container,
+                  text="Give this face a name so you can identify it later.",
+                  style="Hint.TLabel").pack(anchor="w", pady=(0, 12))
+
+        name_row = ttk.Frame(self._frame_container)
+        name_row.pack(anchor="w")
+        ttk.Label(name_row, text="Name:").pack(side="left")
+        ttk.Entry(name_row, textvariable=self._face_name_var,
+                  width=20).pack(side="left", padx=(8, 0))
+
+        ttk.Label(self._frame_container,
+                  text='Leave blank to use "User 2", "User 3", etc.',
+                  style="Hint.TLabel").pack(anchor="w", pady=(6, 0))
+
+        btn_row = ttk.Frame(self._frame_container)
+        btn_row.pack(pady=(16, 0), fill="x")
+        ttk.Button(btn_row, text="Cancel", command=self.destroy).pack(side="left")
+        ttk.Button(btn_row, text="Next",
+                   command=self._check_camera_and_enroll).pack(side="right")
+
+    # ------------------------------------------------------------------
+    # Enroll mode: Consent step
     # ------------------------------------------------------------------
 
     def _show_consent_step(self) -> None:
@@ -119,7 +170,7 @@ class EnrollmentWindow(tk.Tk):
                    command=self._show_fallback_step).pack(side="right")
 
     # ------------------------------------------------------------------
-    # Step 2 — Fallback method
+    # Enroll mode: Fallback step
     # ------------------------------------------------------------------
 
     def _show_fallback_step(self) -> None:
@@ -131,8 +182,8 @@ class EnrollmentWindow(tk.Tk):
                   text="Used if face authentication fails:",
                   style="Hint.TLabel").pack(anchor="w", pady=(0, 8))
 
+        # FALLBACK_NONE intentionally excluded — no fallback is too risky.
         options = [
-            (config.FALLBACK_NONE,    "None — face auth only"),
             (config.FALLBACK_PIN,     "PIN code"),
             (config.FALLBACK_WINDOWS, "Windows Hello / password"),
         ]
@@ -140,11 +191,9 @@ class EnrollmentWindow(tk.Tk):
             ttk.Radiobutton(self._frame_container, text=label,
                             variable=self._fallback, value=value).pack(anchor="w", pady=3)
 
-        self._pin_frame = ttk.Frame(self._frame_container)
-        ttk.Label(self._pin_frame, text="Enter PIN:").pack(side="left")
-        ttk.Entry(self._pin_frame, textvariable=self._pin_var,
-                  show="*", width=12).pack(side="left", padx=(6, 0))
-
+        # PIN entry + confirm + eye toggles — shown only when PIN is selected.
+        self._pin_section = ttk.Frame(self._frame_container)
+        self._build_pin_fields(self._pin_section)
         self._fallback.trace_add("write", self._toggle_pin_field)
         self._toggle_pin_field()
 
@@ -155,26 +204,78 @@ class EnrollmentWindow(tk.Tk):
         ttk.Button(btn_row, text="Next",
                    command=self._commit_consent_and_enroll).pack(side="right")
 
+    def _build_pin_fields(self, parent: ttk.Frame) -> None:
+        """Build PIN + Confirm PIN rows with ⊙ eye-toggle buttons."""
+        def _make_row(label_text: str, var: tk.StringVar) -> tk.Entry:
+            row = ttk.Frame(parent)
+            row.pack(anchor="w", pady=(4, 0))
+            ttk.Label(row, text=label_text, width=12).pack(side="left")
+            entry = tk.Entry(row, textvariable=var, show="●",
+                             font=("Segoe UI", 11), width=14,
+                             bg="white", relief="solid")
+            entry.pack(side="left", padx=(4, 0))
+
+            def _toggle(e=entry):
+                e.configure(show="" if e.cget("show") == "●" else "●")
+
+            tk.Button(row, text="⊙", font=("Segoe UI", 11),
+                      bg="white", relief="flat", bd=0, cursor="hand2",
+                      activebackground="white", command=_toggle
+                      ).pack(side="left", padx=(4, 0))
+            return entry
+
+        _make_row("PIN:", self._pin_var)
+        _make_row("Confirm PIN:", self._confirm_pin_var)
+
     def _toggle_pin_field(self, *_) -> None:
         if self._fallback.get() == config.FALLBACK_PIN:
-            self._pin_frame.pack(anchor="w", pady=(6, 0))
+            self._pin_section.pack(anchor="w", pady=(6, 0))
         else:
-            self._pin_frame.pack_forget()
+            self._pin_section.pack_forget()
+            # Clear fields when hiding so stale input isn't validated.
+            self._pin_var.set("")
+            self._confirm_pin_var.set("")
 
     # ------------------------------------------------------------------
-    # Step 3 — Enroll (camera capture via core service)
+    # Shared: camera check → capture
     # ------------------------------------------------------------------
+
+    def _check_camera_and_enroll(self) -> None:
+        """Used in add_user mode: skip consent/fallback, go straight to capture."""
+        try:
+            result = _check_camera_via_pipe()
+        except Exception:
+            messagebox.showerror(
+                "Camera unavailable",
+                "Could not reach the FaceLock service.\n"
+                "Make sure the core service is running and try again.",
+            )
+            return
+        if not result.get("ok"):
+            messagebox.showerror(
+                "Camera unavailable",
+                f"Cannot access the webcam:\n{result.get('reason', 'unknown error')}\n\n"
+                "Check that no other application is using the camera.",
+            )
+            return
+        self._show_enrolling_step()
 
     def _commit_consent_and_enroll(self) -> None:
         pin_hash: str | None = None
         if self._fallback.get() == config.FALLBACK_PIN:
             pin = self._pin_var.get().strip()
+            confirm = self._confirm_pin_var.get().strip()
             if not pin:
                 messagebox.showwarning("PIN required", "Please enter a PIN.")
                 return
+            if pin != confirm:
+                messagebox.showwarning("PIN mismatch",
+                                       "PINs do not match. Please try again.")
+                self._pin_var.set("")
+                self._confirm_pin_var.set("")
+                return
             pin_hash = bcrypt.hashpw(pin.encode(), bcrypt.gensalt()).decode()
 
-        self._pending_pin_hash = pin_hash
         try:
             result = _check_camera_via_pipe()
         except Exception:
@@ -193,30 +294,28 @@ class EnrollmentWindow(tk.Tk):
             return
 
         if not has_consent(config.DB_PATH, self._username):
-            # First-time enrollment — create user record with consent.
-            record_consent(
-                config.DB_PATH,
-                self._username,
-                self._fallback.get(),
-                pin_hash,
-            )
+            record_consent(config.DB_PATH, self._username,
+                           self._fallback.get(), pin_hash)
         else:
-            # Re-enrollment — update fallback/PIN in case user changed them.
-            update_user_fallback(
-                config.DB_PATH,
-                self._username,
-                self._fallback.get(),
-                pin_hash,
-            )
+            update_user_fallback(config.DB_PATH, self._username,
+                                 self._fallback.get(), pin_hash)
         self._show_enrolling_step()
+
+    # ------------------------------------------------------------------
+    # Capture step (shared by both modes)
+    # ------------------------------------------------------------------
 
     def _show_enrolling_step(self) -> None:
         self._clear()
-        self._set_step(2)
-        ttk.Label(self._frame_container, text="Enrolling Your Face",
+        capture_step_index = 1 if self._mode == "add_user" else 2
+        self._set_step(capture_step_index)
+
+        title = "Adding New Face" if self._mode == "add_user" else "Enrolling Your Face"
+        ttk.Label(self._frame_container, text=title,
                   style="Section.TLabel").pack(anchor="w", pady=(0, 4))
 
-        self._status_var = tk.StringVar(master=self, value="Look straight at the camera, blink naturally")
+        self._status_var = tk.StringVar(master=self,
+                                        value="Look straight at the camera, blink naturally")
         ttk.Label(self._frame_container, textvariable=self._status_var,
                   font=("Segoe UI", 10, "bold")).pack(pady=(0, 8))
 
@@ -235,7 +334,8 @@ class EnrollmentWindow(tk.Tk):
         ttk.Label(prog_row, textvariable=self._pct_var,
                   font=("Segoe UI", 9, "bold"), width=5).pack(side="left", padx=(6, 0))
 
-        self._frame_label = tk.StringVar(master=self, value=f"0 / {config.ENROLLMENT_FRAMES} frames captured")
+        self._frame_label = tk.StringVar(
+            master=self, value=f"0 / {config.ENROLLMENT_FRAMES} frames captured")
         ttk.Label(self._frame_container, textvariable=self._frame_label,
                   style="Hint.TLabel").pack()
 
@@ -244,8 +344,17 @@ class EnrollmentWindow(tk.Tk):
         self._poll_enroll_result()
 
     def _run_enroll(self) -> None:
+        # Resolve face name: use provided name or auto-generate.
+        face_name = self._face_name_var.get().strip() if self._face_name_var else ""
+        if not face_name:
+            face_name = "Primary" if self._mode == "enroll" else "User"
         try:
-            result = _enroll_via_pipe(self._username, self._enroll_queue.put)
+            result = _enroll_via_pipe(
+                self._username,
+                self._enroll_queue.put,
+                mode="add" if self._mode == "add_user" else "replace",
+                face_name=face_name,
+            )
         except Exception as exc:
             result = {"ok": False, "reason": str(exc)}
         self._enroll_queue.put(result)
@@ -254,7 +363,6 @@ class EnrollmentWindow(tk.Tk):
         latest_frame = None
         final = None
 
-        # Drain everything queued since last tick; keep the newest frame only
         while True:
             try:
                 msg = self._enroll_queue.get_nowait()
@@ -277,9 +385,9 @@ class EnrollmentWindow(tk.Tk):
 
     def _update_preview(self, msg: dict) -> None:
         img = Image.open(io.BytesIO(msg["jpeg"]))
-        boxes = msg.get("boxes", [])
+        boxes    = msg.get("boxes", [])
         progress = msg["progress"]
-        total = msg["total"]
+        total    = msg["total"]
 
         if boxes:
             draw = ImageDraw.Draw(img)
@@ -307,11 +415,15 @@ class EnrollmentWindow(tk.Tk):
     def _on_enroll_done(self, result: dict) -> None:
         if result.get("ok"):
             from modules.notifications import notify
-            notify("FaceLock — Enrolled", f"{self._username} has been enrolled successfully.")
+            label = "added" if self._mode == "add_user" else "enrolled"
+            notify("FaceLock — Enrolled",
+                   f"Face {label} successfully for {self._username}.")
             self._show_success_step()
         else:
-            erase_user_data(config.DB_PATH, config.KEY_PATH, self._username)
             reason = result.get("reason", "unknown error")
+            if self._mode == "enroll":
+                # Only erase data on failure during first-time enroll.
+                erase_user_data(config.DB_PATH, config.KEY_PATH, self._username)
             messagebox.showerror("Enrollment failed", f"Could not enroll: {reason}")
             self._show_enrolling_step()
 
@@ -323,14 +435,14 @@ class EnrollmentWindow(tk.Tk):
         ttk.Label(self._frame_container, text="✓",
                   font=("Segoe UI", 52, "bold"), foreground="#1a8f1a").pack(pady=(20, 0))
 
-        ttk.Label(self._frame_container, text="You're all set!",
+        title = "Face Added!" if self._mode == "add_user" else "You're all set!"
+        ttk.Label(self._frame_container, text=title,
                   font=("Segoe UI", 14, "bold")).pack(pady=(8, 2))
         ttk.Label(self._frame_container,
                   text=f"Enrolled as  {self._username}",
                   font=("Segoe UI", 10)).pack()
         ttk.Label(self._frame_container,
-                  text="FaceLock will monitor your presence and\n"
-                       "lock this device when you step away.",
+                  text="FaceLock will recognise this face\nwhen unlocking the device.",
                   justify="center", style="Hint.TLabel").pack(pady=(10, 0))
 
         ttk.Button(self._frame_container, text="Done",
@@ -341,18 +453,19 @@ class EnrollmentWindow(tk.Tk):
     # ------------------------------------------------------------------
 
     def destroy(self) -> None:
-        for attr in ("_fallback", "_pin_var", "_status_var", "_frame_label", "_pct_var", "_tol_var"):
+        for attr in ("_fallback", "_pin_var", "_confirm_pin_var", "_face_name_var",
+                     "_status_var", "_frame_label", "_pct_var"):
             setattr(self, attr, None)
         super().destroy()
 
     def _clear(self) -> None:
         for widget in self._frame_container.winfo_children():
             widget.destroy()
-        self.geometry("")  # let tkinter recalculate window size for new content
+        self.geometry("")
 
 
-def launch() -> None:
-    app = EnrollmentWindow()
+def launch(mode: str = "enroll") -> None:
+    app = EnrollmentWindow(mode=mode)
     app.mainloop()
 
 

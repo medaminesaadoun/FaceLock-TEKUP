@@ -598,7 +598,8 @@ class StatusIndicator:
                 pystray.MenuItem("Open Dashboard", self._open_dashboard, default=True),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Settings", self._open_settings),
-                pystray.MenuItem("Enroll", self._open_enrollment),
+                pystray.MenuItem("Re-enroll", self._open_enrollment),
+                pystray.MenuItem("Add User", self._open_add_user),
                 pystray.MenuItem("Debug View", self._open_debug),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem(
@@ -710,6 +711,7 @@ class StatusIndicator:
                 lambda: self._quit(self._icon, None),
                 lambda: self._open_settings(None, None),
                 lambda: self._open_enrollment(None, None),
+                lambda: self._open_add_user(None, None),
                 lambda: threading.Thread(target=self._do_open_debug, daemon=True).start(),
             )
             # Store reference so set_locked() can destroy it before the overlay
@@ -740,7 +742,15 @@ class StatusIndicator:
     def _do_open_enroll(self) -> None:
         self._close_all_windows()
         from ui.enrollment_window import EnrollmentWindow
-        app = EnrollmentWindow()
+        app = EnrollmentWindow(mode="enroll")
+        self._enroll_app = app
+        app.mainloop()
+        self._enroll_app = None
+
+    def _do_open_add_user(self) -> None:
+        self._close_all_windows()
+        from ui.enrollment_window import EnrollmentWindow
+        app = EnrollmentWindow(mode="add_user")
         self._enroll_app = app
         app.mainloop()
         self._enroll_app = None
@@ -759,6 +769,11 @@ class StatusIndicator:
 
     def _open_enrollment(self, icon, item) -> None:
         t = threading.Thread(target=self._do_open_enroll, daemon=True)
+        self._enroll_thread = t
+        t.start()
+
+    def _open_add_user(self, icon=None, item=None) -> None:
+        t = threading.Thread(target=self._do_open_add_user, daemon=True)
         self._enroll_thread = t
         t.start()
 

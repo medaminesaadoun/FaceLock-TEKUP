@@ -127,7 +127,7 @@ def _query_paused() -> bool:
 class Dashboard(tk.Tk):
     def __init__(self, locked: bool, paused: bool,
                  on_pause_toggle, on_quit, on_open_settings,
-                 on_open_enroll, on_open_debug) -> None:
+                 on_open_enroll, on_open_add_user, on_open_debug) -> None:
         super().__init__()
         self.title("FaceLock")
         self.resizable(False, False)
@@ -140,6 +140,7 @@ class Dashboard(tk.Tk):
         self._on_quit = on_quit
         self._on_open_settings = on_open_settings
         self._on_open_enroll = on_open_enroll
+        self._on_open_add_user = on_open_add_user
         self._on_open_debug = on_open_debug
 
         # StringVars updated by _refresh — nullified in destroy().
@@ -281,8 +282,10 @@ class Dashboard(tk.Tk):
 
         ttk.Button(btn_row, text="Settings",
                    command=self._settings).pack(side="left", padx=(0, 6))
-        ttk.Button(btn_row, text="Enroll",
+        ttk.Button(btn_row, text="Re-enroll",
                    command=self._enroll).pack(side="left", padx=(0, 6))
+        ttk.Button(btn_row, text="Add User",
+                   command=self._add_user).pack(side="left", padx=(0, 6))
         ttk.Button(btn_row, text="Debug",
                    command=self._debug).pack(side="left", padx=(0, 6))
         ttk.Button(btn_row, text="Quit",
@@ -396,6 +399,9 @@ class Dashboard(tk.Tk):
     def _enroll(self) -> None:
         self._on_open_enroll()
 
+    def _add_user(self) -> None:
+        self._on_open_add_user()
+
     def _debug(self) -> None:
         self._on_open_debug()
         self.after(50, self.destroy)  # debug is a subprocess, so close manually
@@ -407,7 +413,7 @@ class Dashboard(tk.Tk):
 
 def launch(locked: bool, paused: bool,
            on_pause_toggle, on_quit,
-           on_open_settings, on_open_enroll, on_open_debug) -> None:
+           on_open_settings, on_open_enroll, on_open_add_user, on_open_debug) -> None:
     app = Dashboard(locked, paused, on_pause_toggle, on_quit,
-                    on_open_settings, on_open_enroll, on_open_debug)
+                    on_open_settings, on_open_enroll, on_open_add_user, on_open_debug)
     app.mainloop()

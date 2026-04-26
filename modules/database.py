@@ -31,7 +31,8 @@ def initialize(db_path: str) -> None:
                 user_id             INTEGER REFERENCES users(id),
                 encrypted_embedding BLOB    NOT NULL,
                 created_at          TEXT    NOT NULL,
-                last_used_at        TEXT
+                last_used_at        TEXT,
+                name                TEXT    DEFAULT 'Primary'
             );
             CREATE TABLE IF NOT EXISTS audit_log (
                 id               INTEGER PRIMARY KEY,
@@ -41,6 +42,12 @@ def initialize(db_path: str) -> None:
                 mode             TEXT NOT NULL
             );
         """)
+        # Migration: add name column for databases created before multi-user support.
+        try:
+            conn.execute("ALTER TABLE embeddings ADD COLUMN name TEXT DEFAULT 'Primary'")
+            conn.commit()
+        except Exception:
+            pass  # Column already exists
 
 
 def check_integrity(db_path: str) -> bool:
@@ -82,23 +89,58 @@ def update_user_fallback(db_path: str, username: str,
         conn.commit()
 
 
-def save_embedding(db_path: str, user_id: int, encrypted_embedding: bytes) -> None:
+def save_embedding(db_path: str, user_id: int, encrypted_embedding: bytes,
+                   name: str = "Primary") -> None:
+    """Re-enroll: replace ALL embeddings for this user with one new one."""
     now = datetime.now(timezone.utc).isoformat()
     with closing(get_connection(db_path)) as conn:
         conn.execute("DELETE FROM embeddings WHERE user_id = ?", (user_id,))
         conn.execute(
-            "INSERT INTO embeddings (user_id, encrypted_embedding, created_at) VALUES (?, ?, ?)",
-            (user_id, encrypted_embedding, now)
+            "INSERT INTO embeddings (user_id, encrypted_embedding, created_at, name) "
+            "VALUES (?, ?, ?, ?)",
+            (user_id, encrypted_embedding, now, name)
         )
         conn.commit()
 
 
+def add_embedding(db_path: str, user_id: int, encrypted_embedding: bytes,
+                  name: str = "User") -> None:
+    """Add a new embedding without removing existing ones (multi-user support)."""
+    now = datetime.now(timezone.utc).isoformat()
+    with closing(get_connection(db_path)) as conn:
+        conn.execute(
+            "INSERT INTO embeddings (user_id, encrypted_embedding, created_at, name) "
+            "VALUES (?, ?, ?, ?)",
+            (user_id, encrypted_embedding, now, name)
+        )
+        conn.commit()
+
+
+def get_embeddings(db_path: str, user_id: int) -> list[tuple[int, bytes, str]]:
+    """Return all (id, encrypted_embedding, name) tuples for a user."""
+    with closing(get_connection(db_path)) as conn:
+        rows = conn.execute(
+            "SELECT id, encrypted_embedding, name FROM embeddings WHERE user_id = ?",
+            (user_id,)
+        ).fetchall()
+        return [(r["id"], bytes(r["encrypted_embedding"]), r["name"] or "User")
+                for r in rows]
+
+
 def get_embedding(db_path: str, user_id: int) -> Optional[bytes]:
+    """Return the first stored embedding blob (legacy single-user access)."""
     with closing(get_connection(db_path)) as conn:
         row = conn.execute(
             "SELECT encrypted_embedding FROM embeddings WHERE user_id = ?", (user_id,)
         ).fetchone()
         return bytes(row["encrypted_embedding"]) if row else None
+
+
+def delete_embedding_by_id(db_path: str, embedding_id: int) -> None:
+    """Delete a specific enrolled face by its embedding row id."""
+    with closing(get_connection(db_path)) as conn:
+        conn.execute("DELETE FROM embeddings WHERE id = ?", (embedding_id,))
+        conn.commit()
 
 
 def update_last_used(db_path: str, user_id: int) -> None:

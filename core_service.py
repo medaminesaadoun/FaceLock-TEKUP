@@ -8,7 +8,7 @@ import numpy as np
 
 import config
 from modules.database import (
-    initialize, get_user, get_embedding, save_embedding,
+    initialize, get_user, get_embeddings, save_embedding, add_embedding,
     log_auth_event, update_last_used,
 )
 from modules.encryption import generate_key, save_key, load_key, encrypt, decrypt
@@ -43,33 +43,41 @@ def _open_camera() -> cv2.VideoCapture:
     return cap
 
 
-def _load_stored_embedding(username: str) -> np.ndarray | None:
+def _load_stored_embeddings(username: str) -> list[np.ndarray]:
+    """Return all decrypted stored embeddings for a user (multi-user support)."""
     user = get_user(config.DB_PATH, username)
     if not user:
-        return None
-    blob = get_embedding(config.DB_PATH, user["id"])
-    if not blob:
-        return None
+        return []
+    rows = get_embeddings(config.DB_PATH, user["id"])
+    if not rows:
+        return []
     key = load_key(config.KEY_PATH)
-    return bytes_to_embedding(decrypt(key, blob))
+    result = []
+    for _, blob, _ in rows:
+        try:
+            result.append(bytes_to_embedding(decrypt(key, blob)))
+        except Exception:
+            continue
+    return result
 
 
 def _handle_auth(username: str, detector: FaceDetector) -> dict:
-    embedding = _load_stored_embedding(username)
-    if embedding is None:
+    # Load all enrolled embeddings — one Authenticator per face.
+    embeddings = _load_stored_embeddings(username)
+    if not embeddings:
         return {"ok": False, "reason": "not_enrolled"}
 
     user = get_user(config.DB_PATH, username)
     tolerance = get_tolerance(config.SETTINGS_PATH)
-    auth = Authenticator(embedding, tolerance)
+    # Each stored face gets its own streak counter; access granted if any matches.
+    auths = [Authenticator(emb, tolerance) for emb in embeddings]
 
     with _camera_lock:
         cap = _open_camera()
         try:
             deadline = time.monotonic() + config.AUTO_LOCK_TIMEOUT_SECONDS
             while time.monotonic() < deadline:
-                # Abort early if the lock was cleared externally (e.g. PIN auth
-                # succeeded while this face auth loop was still running).
+                # Abort early if the lock was cleared externally (e.g. PIN auth).
                 with _locked_lock:
                     if not _locked:
                         return {"ok": False, "reason": "cancelled"}
@@ -80,14 +88,17 @@ def _handle_auth(username: str, detector: FaceDetector) -> dict:
                 small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
                 boxes = detector.find_faces(small)
                 if len(boxes) != 1:
-                    auth.reset()
+                    for auth in auths:
+                        auth.reset()
                     time.sleep(0.1)
                     continue
                 live_emb = extract_embedding(small, boxes[0])
                 if live_emb is None:
                     time.sleep(0.1)
                     continue
-                if auth.feed(live_emb):
+                # Feed live embedding to all authenticators simultaneously.
+                results = [auth.feed(live_emb) for auth in auths]
+                if any(results):
                     log_auth_event(config.DB_PATH, username, "pass", "face")
                     update_last_used(config.DB_PATH, user["id"])
                     return {"ok": True}
@@ -99,7 +110,8 @@ def _handle_auth(username: str, detector: FaceDetector) -> dict:
     return {"ok": False, "reason": "timeout"}
 
 
-def _handle_enroll(conn, username: str, detector: FaceDetector) -> dict:
+def _handle_enroll(conn, username: str, detector: FaceDetector,
+                   mode: str = "replace", face_name: str = "Primary") -> dict:
     user = get_user(config.DB_PATH, username)
     if not user:
         return {"ok": False, "reason": "no_consent"}
@@ -151,7 +163,12 @@ def _handle_enroll(conn, username: str, detector: FaceDetector) -> dict:
     else:
         key = load_key(config.KEY_PATH)
 
-    save_embedding(config.DB_PATH, user["id"], encrypt(key, raw_bytes))
+    if mode == "add":
+        # Append without removing existing faces (multi-user support).
+        add_embedding(config.DB_PATH, user["id"], encrypt(key, raw_bytes), face_name)
+    else:
+        # Default re-enroll: replace all stored embeddings with this one.
+        save_embedding(config.DB_PATH, user["id"], encrypt(key, raw_bytes), face_name)
     return {"ok": True}
 
 
@@ -274,7 +291,9 @@ def _handle_client(conn, detector: FaceDetector) -> None:
         if cmd == "auth":
             send(conn, _handle_auth(username, detector))
         elif cmd == "enroll":
-            send(conn, _handle_enroll(conn, username, detector))
+            mode      = msg.get("mode", "replace")
+            face_name = msg.get("face_name", "Primary")
+            send(conn, _handle_enroll(conn, username, detector, mode, face_name))
         elif cmd == "presence":
             send(conn, _handle_presence(detector))
         elif cmd == "debug_stream":
