@@ -1,0 +1,33 @@
+# Generated docs
+docs/
+
+# User data files (database, encryption key, settings, PIDs)
+data/facelock.db
+data/facelock.key
+data/settings.json
+data/pipe.key
+data/pids.json
+
+# Logs
+logs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+facelock_env/
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Claude
+.claude/
