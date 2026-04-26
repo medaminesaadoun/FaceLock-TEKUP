@@ -9,6 +9,7 @@ import os
 import signal
 import time
 import ctypes
+import gc
 import ctypes.wintypes
 from datetime import datetime
 
@@ -289,6 +290,10 @@ class LockOverlay:
         self._status_var = None
         self._dot_var = None
         self._bg_photo = None  # <Destroy> binding already deleted it from Tcl
+        # Force GC of the tk.Tk root in this thread — cyclic references from
+        # tkinter callbacks can delay destruction until GC runs elsewhere.
+        del root
+        gc.collect()
 
     @staticmethod
     def _load_lock_screen_image(w: int, h: int) -> bytes | None:
@@ -754,6 +759,11 @@ class StatusIndicator:
             app.mainloop()
             self._dashboard_app = None
             self._dashboard_ready.clear()
+            # Force GC of the tk.Tk instance in this thread before it exits.
+            # Without this, cyclic references keep the Tcl interpreter alive
+            # until the GC runs from a different thread, causing Tcl_AsyncDelete.
+            del app
+            gc.collect()
 
         self._dashboard_thread = threading.Thread(target=_run, daemon=True)
         self._dashboard_thread.start()
@@ -773,6 +783,8 @@ class StatusIndicator:
         self._settings_app = app
         app.mainloop()
         self._settings_app = None
+        del app
+        gc.collect()
 
     def _do_open_enroll(self) -> None:
         self._close_all_windows()
@@ -781,6 +793,8 @@ class StatusIndicator:
         self._enroll_app = app
         app.mainloop()
         self._enroll_app = None
+        del app
+        gc.collect()
 
     def _do_open_add_user(self) -> None:
         self._close_all_windows()
@@ -792,6 +806,8 @@ class StatusIndicator:
         self._enroll_app = app
         app.mainloop()
         self._enroll_app = None
+        del app
+        gc.collect()
 
     def _do_open_debug(self) -> None:
         # Launch debug view as a separate process to avoid Tcl thread conflicts.
