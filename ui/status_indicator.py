@@ -764,8 +764,11 @@ class StatusIndicator:
 
     def _do_open_add_user(self) -> None:
         self._close_all_windows()
+        from modules.gdpr import has_consent
         from ui.enrollment_window import EnrollmentWindow
-        app = EnrollmentWindow(mode="add_user")
+        # Add User requires an existing enrollment — redirect to full enroll if not enrolled.
+        mode = "add_user" if has_consent(config.DB_PATH, self._username) else "enroll"
+        app = EnrollmentWindow(mode=mode)
         self._enroll_app = app
         app.mainloop()
         self._enroll_app = None

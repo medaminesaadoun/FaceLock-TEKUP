@@ -423,8 +423,16 @@ class EnrollmentWindow(tk.Tk):
             reason = result.get("reason", "unknown error")
             messagebox.showerror("Enrollment failed", f"Could not enroll: {reason}")
             if self._mode == "add_user":
-                # Add-user mode: retry capture directly — no consent to manage.
-                self._show_enrolling_step()
+                if reason == "no_consent":
+                    # Primary enrollment is required before adding extra faces.
+                    messagebox.showerror(
+                        "Not enrolled",
+                        "You must complete your initial enrollment before adding "
+                        "additional faces. Please use Enroll first.")
+                    self.destroy()
+                else:
+                    # Camera/timeout failure — let user retry capture.
+                    self._show_enrolling_step()
             else:
                 # Enroll mode: erase the consent record so the next attempt
                 # starts cleanly from the consent step. Going back to capture
