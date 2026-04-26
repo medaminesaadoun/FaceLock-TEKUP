@@ -29,9 +29,29 @@ from modules.ipc import make_client, send, recv
 # ---------------------------------------------------------------------------
 
 _WH_KEYBOARD_LL = 13
-_WM_KEYDOWN     = 0x0100
-_WM_SYSKEYDOWN  = 0x0104
+_WM_KEYDOWN    = 0x0100
+_WM_SYSKEYDOWN = 0x0104
 _VK_BLOCK = {0x09, 0x5B, 0x5C}  # Tab, LWin, RWin
+
+# LRESULT is a pointer-sized signed integer (32-bit on x86, 64-bit on x64).
+# Using c_ssize_t ensures the correct size on all platforms.
+_LRESULT = ctypes.c_ssize_t
+
+# Declare argtypes/restype on CallNextHookEx so ctypes marshals the 64-bit
+# lParam correctly — without this, Python overflows when converting a large
+# pointer value to a plain c_int on 64-bit Windows.
+_call_next = ctypes.windll.user32.CallNextHookEx
+_call_next.restype  = _LRESULT
+_call_next.argtypes = [
+    ctypes.c_void_p,        # hhk  (can be None)
+    ctypes.c_int,           # nCode
+    ctypes.wintypes.WPARAM, # wParam
+    ctypes.wintypes.LPARAM, # lParam
+]
+
+_HOOKPROC = ctypes.WINFUNCTYPE(
+    _LRESULT, ctypes.c_int,
+    ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM)
 
 
 class _KBDLLHOOKSTRUCT(ctypes.Structure):
@@ -44,19 +64,14 @@ class _KBDLLHOOKSTRUCT(ctypes.Structure):
     ]
 
 
-_HOOKPROC = ctypes.WINFUNCTYPE(
-    ctypes.c_int, ctypes.c_int,
-    ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM)
-
-
 def _install_kb_hook():
     """Install WH_KEYBOARD_LL hook; return (hook_handle, callback_ref)."""
     def _handler(nCode, wParam, lParam):
         if nCode >= 0 and wParam in (_WM_KEYDOWN, _WM_SYSKEYDOWN):
             kb = ctypes.cast(lParam, ctypes.POINTER(_KBDLLHOOKSTRUCT)).contents
             if kb.vkCode in _VK_BLOCK:
-                return 1  # swallow — do not pass to next hook
-        return ctypes.windll.user32.CallNextHookEx(None, nCode, wParam, lParam)
+                return _LRESULT(1)  # swallow — do not pass to next hook
+        return _call_next(None, nCode, wParam, lParam)
 
     fn   = _HOOKPROC(_handler)
     hook = ctypes.windll.user32.SetWindowsHookExW(_WH_KEYBOARD_LL, fn, None, 0)
