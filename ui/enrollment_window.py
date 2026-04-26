@@ -421,11 +421,17 @@ class EnrollmentWindow(tk.Tk):
             self._show_success_step()
         else:
             reason = result.get("reason", "unknown error")
-            if self._mode == "enroll":
-                # Only erase data on failure during first-time enroll.
-                erase_user_data(config.DB_PATH, config.KEY_PATH, self._username)
             messagebox.showerror("Enrollment failed", f"Could not enroll: {reason}")
-            self._show_enrolling_step()
+            if self._mode == "add_user":
+                # Add-user mode: retry capture directly — no consent to manage.
+                self._show_enrolling_step()
+            else:
+                # Enroll mode: erase the consent record so the next attempt
+                # starts cleanly from the consent step. Going back to capture
+                # directly would fail because the core service would find no
+                # user record after erasure.
+                erase_user_data(config.DB_PATH, config.KEY_PATH, self._username)
+                self._show_consent_step()
 
     def _show_success_step(self) -> None:
         self._clear()

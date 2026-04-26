@@ -282,8 +282,11 @@ class Dashboard(tk.Tk):
 
         ttk.Button(btn_row, text="Settings",
                    command=self._settings).pack(side="left", padx=(0, 6))
-        ttk.Button(btn_row, text="Re-enroll",
-                   command=self._enroll).pack(side="left", padx=(0, 6))
+        # Label changes between "Enroll" and "Re-enroll" based on status.
+        self._enroll_btn = ttk.Button(btn_row,
+                                      text=self._enroll_label(),
+                                      command=self._enroll)
+        self._enroll_btn.pack(side="left", padx=(0, 6))
         ttk.Button(btn_row, text="Add User",
                    command=self._add_user).pack(side="left", padx=(0, 6))
         ttk.Button(btn_row, text="Debug",
@@ -353,6 +356,9 @@ class Dashboard(tk.Tk):
                      foreground=color, background="#f4f4f4",
                      padx=6).pack(side="left")
 
+    def _enroll_label(self) -> str:
+        return "Re-enroll" if has_consent(config.DB_PATH, self._username) else "Enroll"
+
     def _refresh(self) -> None:
         """Periodic refresh of all live data (every 2 s)."""
         if self._last_auth_var:
@@ -360,6 +366,9 @@ class Dashboard(tk.Tk):
                 f"Last auth:  {_last_auth_label(self._username)}")
         self._refresh_stats()
         self._refresh_recent()
+        # Sync enroll button label in case enrollment status changed.
+        if hasattr(self, "_enroll_btn"):
+            self._enroll_btn.configure(text=self._enroll_label())
         self.after(2000, self._refresh)
 
     # ------------------------------------------------------------------
