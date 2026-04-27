@@ -167,6 +167,9 @@ class Dashboard(tk.Tk):
         self._recent_frame:  tk.Frame | None = None
         self._faces_inner:   tk.Frame | None = None
         self._cached_faces:  list[dict] = []  # fallback cache on DB error
+        # Counter incremented while a dialog/popup is open so the FocusOut
+        # handler does not destroy the dashboard behind the dialog.
+        self._dialog_count:  int = 0
 
         self._build()
         center_window(self)
@@ -412,6 +415,7 @@ class Dashboard(tk.Tk):
 
     def _rename_popup(self, embedding_id: int, current_name: str) -> None:
         """Open a Toplevel popup to rename an enrolled face."""
+        self._dialog_count += 1
         popup = tk.Toplevel(self)
         popup.title("Rename Face")
         popup.resizable(False, False)
@@ -424,18 +428,23 @@ class Dashboard(tk.Tk):
         entry.select_range(0, "end")
         entry.focus_set()
 
+        def _close():
+            self._dialog_count -= 1
+            popup.destroy()
+
         def _confirm():
             new = var.get().strip()
             if new:
                 rename_embedding(config.DB_PATH, embedding_id, new)
-            popup.destroy()
+            _close()
             self._refresh_faces()
 
         entry.bind("<Return>", lambda e: _confirm())
+        popup.protocol("WM_DELETE_WINDOW", _close)
         btn_row = ttk.Frame(popup, padding=(12, 0, 12, 12))
         btn_row.pack()
         ttk.Button(btn_row, text="Cancel",
-                   command=popup.destroy).pack(side="left", padx=(0, 8))
+                   command=_close).pack(side="left", padx=(0, 8))
         ttk.Button(btn_row, text="OK",
                    command=_confirm).pack(side="left")
 
@@ -447,13 +456,16 @@ class Dashboard(tk.Tk):
 
     def _delete_face(self, embedding_id: int, name: str) -> None:
         """Confirm and delete one enrolled face."""
-        if messagebox.askyesno(
+        self._dialog_count += 1
+        confirmed = messagebox.askyesno(
             "Delete Face",
             f"Remove enrolled face '{name}'?\n\n"
             "This cannot be undone. If this is the only face enrolled, "
             "you will need to re-enroll to use FaceLock.",
             parent=self,
-        ):
+        )
+        self._dialog_count -= 1
+        if confirmed:
             delete_embedding_by_id(config.DB_PATH, embedding_id)
             self._refresh_faces()
 
@@ -563,6 +575,10 @@ class Dashboard(tk.Tk):
             self.after(100, self._check_focus)
 
     def _check_focus(self) -> None:
+        # Do not close while a messagebox or Toplevel popup is open —
+        # those steal focus and would incorrectly trigger auto-close.
+        if self._dialog_count > 0:
+            return
         if self.focus_displayof() is None:
             self.destroy()
 
