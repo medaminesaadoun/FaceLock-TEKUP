@@ -2,11 +2,14 @@
 import getpass
 import threading
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from datetime import datetime, timezone
 
 import config
-from modules.database import get_user, get_connection
+from modules.database import (
+    get_user, get_connection, get_embeddings,
+    delete_embedding_by_id, rename_embedding,
+)
 from modules.gdpr import has_consent
 from modules.ipc import make_client, send, recv
 from modules.user_settings import get_active_preset
@@ -18,7 +21,6 @@ from ui._theme import apply as apply_theme, center as center_window
 # ---------------------------------------------------------------------------
 
 def _last_auth_label(username: str) -> str:
-    """Human-readable string for the last successful authentication."""
     try:
         with get_connection(config.DB_PATH) as conn:
             row = conn.execute(
@@ -30,21 +32,16 @@ def _last_auth_label(username: str) -> str:
         if not row:
             return "Never"
         ts = datetime.fromisoformat(row["timestamp"]).replace(tzinfo=timezone.utc)
-        delta = datetime.now(timezone.utc) - ts
-        s = int(delta.total_seconds())
-        if s < 60:
-            return "Just now"
-        if s < 3600:
-            return f"{s // 60} min ago"
-        if s < 86400:
-            return f"{s // 3600} h ago"
+        s = int((datetime.now(timezone.utc) - ts).total_seconds())
+        if s < 60:   return "Just now"
+        if s < 3600: return f"{s // 60} min ago"
+        if s < 86400:return f"{s // 3600} h ago"
         return f"{s // 86400} days ago"
     except Exception:
         return "Unknown"
 
 
 def _today_stats(username: str) -> dict:
-    """Total auth attempts, failures, and success % for today (UTC)."""
     try:
         today = (datetime.now(timezone.utc)
                  .replace(hour=0, minute=0, second=0, microsecond=0)
@@ -65,7 +62,6 @@ def _today_stats(username: str) -> dict:
 
 
 def _recent_events(username: str, limit: int = 5) -> list[tuple[str, str]]:
-    """Last N (timestamp ISO, result) rows from audit_log, newest first."""
     try:
         with get_connection(config.DB_PATH) as conn:
             rows = conn.execute(
@@ -79,45 +75,66 @@ def _recent_events(username: str, limit: int = 5) -> list[tuple[str, str]]:
 
 
 def _fallback_label(username: str) -> str:
-    """Return a short label for the user's configured fallback method."""
     try:
         user = get_user(config.DB_PATH, username)
         if not user:
             return ""
-        return {
-            "pin":     "PIN",
-            "windows": "Windows",
-            "none":    "",
-        }.get(user.get("fallback_method", "none"), "")
+        return {"pin": "PIN", "windows": "Windows", "none": ""
+                }.get(user.get("fallback_method", "none"), "")
     except Exception:
         return ""
 
 
 def _event_age_label(iso_ts: str) -> str:
-    """Short human-readable age for a single audit event timestamp."""
     try:
         ts = datetime.fromisoformat(iso_ts).replace(tzinfo=timezone.utc)
         s = int((datetime.now(timezone.utc) - ts).total_seconds())
-        if s < 60:
-            return "now"
-        if s < 3600:
-            return f"{s // 60}m"
-        if s < 86400:
-            return f"{s // 3600}h"
+        if s < 60:    return "now"
+        if s < 3600:  return f"{s // 60}m"
+        if s < 86400: return f"{s // 3600}h"
         return f"{s // 86400}d"
     except Exception:
         return "?"
 
 
-def _query_paused() -> bool:
+def _face_age_label(iso_ts: str | None) -> str:
+    """Human-readable last-used label for an enrolled face."""
+    if not iso_ts:
+        return "never used"
     try:
-        conn = make_client()
-        send(conn, {"cmd": "status"})
-        result = recv(conn)
-        conn.close()
-        return result.get("paused", False)
+        ts = datetime.fromisoformat(iso_ts).replace(tzinfo=timezone.utc)
+        s = int((datetime.now(timezone.utc) - ts).total_seconds())
+        if s < 60:    return "just now"
+        if s < 3600:  return f"{s // 60} min ago"
+        if s < 86400: return f"{s // 3600} h ago"
+        return f"{s // 86400} days ago"
     except Exception:
-        return False
+        return "?"
+
+
+def _get_faces(username: str) -> list[dict]:
+    """Return [{id, name, last_used_label}] for all enrolled faces."""
+    try:
+        user = get_user(config.DB_PATH, username)
+        if not user:
+            return []
+        rows = get_embeddings(config.DB_PATH, user["id"])
+        result = []
+        with get_connection(config.DB_PATH) as conn:
+            for emb_id, _, name in rows:
+                row = conn.execute(
+                    "SELECT last_used_at FROM embeddings WHERE id = ?",
+                    (emb_id,)
+                ).fetchone()
+                last_used = row["last_used_at"] if row else None
+                result.append({
+                    "id":       emb_id,
+                    "name":     name or "Unnamed",
+                    "last_used": _face_age_label(last_used),
+                })
+        return result
+    except Exception:
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -143,26 +160,27 @@ class Dashboard(tk.Tk):
         self._on_open_add_user = on_open_add_user
         self._on_open_debug = on_open_debug
 
-        # StringVars updated by _refresh — nullified in destroy().
         self._last_auth_var: tk.StringVar | None = None
-        self._stats_var: tk.StringVar | None = None
-        self._recent_frame: tk.Frame | None = None
+        self._stats_var:     tk.StringVar | None = None
+        self._camera_var:    tk.StringVar | None = None
+        self._badge_var:     tk.StringVar | None = None
+        self._recent_frame:  tk.Frame | None = None
+        self._faces_inner:   tk.Frame | None = None
+        self._cached_faces:  list[dict] = []  # fallback cache on DB error
 
         self._build()
         center_window(self)
         self.bind("<FocusOut>", self._on_focus_out)
         self.after(2000, self._refresh)
-        self.after(500, self._refresh_camera)  # first camera check shortly after open
+        self.after(500,  self._refresh_camera)
 
     # ------------------------------------------------------------------
     # Layout
     # ------------------------------------------------------------------
 
     def _build(self) -> None:
-        # Accent bar
         tk.Frame(self, bg="#1a73e8", height=4).pack(fill="x")
 
-        # Header
         header = ttk.Frame(self, padding=(20, 14, 20, 8))
         header.pack(fill="x")
         ttk.Label(header, text="FaceLock",
@@ -176,7 +194,7 @@ class Dashboard(tk.Tk):
         body = ttk.Frame(self, padding=(20, 12, 20, 4))
         body.pack(fill="x")
 
-        # -- Status card --------------------------------------------------
+        # ---- Status card ------------------------------------------------
         self._status_frame = tk.Frame(body, bd=1, relief="solid",
                                       bg="#f4f4f4", padx=14, pady=10)
         self._status_frame.pack(fill="x", pady=(0, 10))
@@ -187,7 +205,6 @@ class Dashboard(tk.Tk):
                   font=("Segoe UI", 9, "bold"),
                   background="#f4f4f4").pack(side="left", anchor="w")
 
-        # Active preset shown on the right of the status card header.
         preset = get_active_preset(config.SETTINGS_PATH)
         tk.Label(status_header, text=preset,
                  font=("Segoe UI", 9), bg="#f4f4f4",
@@ -198,17 +215,15 @@ class Dashboard(tk.Tk):
         self._status_dot.pack(anchor="w", pady=(2, 0))
         self._update_status_card()
 
-        # Camera status line — updated every 5 s via _refresh_camera().
         self._camera_var = tk.StringVar(master=self, value="📷  Checking camera…")
         tk.Label(self._status_frame, textvariable=self._camera_var,
                  font=("Segoe UI", 9), background="#f4f4f4",
                  foreground="#888888").pack(anchor="w", pady=(2, 0))
 
-        # -- Two-column card: Account | Today ----------------------------
+        # ---- Account | Today two-column card ----------------------------
         two_col = tk.Frame(body, bd=1, relief="solid", bg="#f4f4f4")
         two_col.pack(fill="x", pady=(0, 10))
 
-        # Left: account info
         acct = tk.Frame(two_col, bg="#f4f4f4", padx=14, pady=10)
         acct.pack(side="left", fill="both", expand=True)
 
@@ -224,13 +239,16 @@ class Dashboard(tk.Tk):
                  font=("Segoe UI", 11, "bold"),
                  background="#f4f4f4").pack(side="left")
 
+        # Dynamic badge — count updates in _refresh_faces().
         badge_color = "#1a8f1a" if enrolled else "#cc0000"
-        badge_text  = "Enrolled" if enrolled else "Not enrolled"
-        tk.Label(user_row, text=f"  {badge_text}",
-                 foreground=badge_color, font=("Segoe UI", 9, "bold"),
-                 background="#f4f4f4").pack(side="left")
+        initial_badge = f"  {self._badge_text()}"
+        self._badge_var = tk.StringVar(master=self, value=initial_badge)
+        self._badge_lbl = tk.Label(user_row, textvariable=self._badge_var,
+                                   foreground=badge_color,
+                                   font=("Segoe UI", 9, "bold"),
+                                   background="#f4f4f4")
+        self._badge_lbl.pack(side="left")
 
-        # Fallback badge (PIN / Windows — hidden when None)
         fb = _fallback_label(self._username)
         if fb:
             tk.Label(user_row, text=f"  {fb}",
@@ -247,11 +265,9 @@ class Dashboard(tk.Tk):
         else:
             self._last_auth_var = None
 
-        # Divider between columns
         tk.Frame(two_col, bg="#e0e0e0", width=1).pack(
             side="left", fill="y", pady=8)
 
-        # Right: today's stats
         stats = tk.Frame(two_col, bg="#f4f4f4", padx=14, pady=10)
         stats.pack(side="left", fill="both")
 
@@ -265,7 +281,20 @@ class Dashboard(tk.Tk):
                  background="#f4f4f4", justify="left").pack(anchor="w", pady=(4, 0))
         self._refresh_stats()
 
-        # -- Recent Activity card ----------------------------------------
+        # ---- Enrolled Faces card ----------------------------------------
+        faces_card = tk.Frame(body, bd=1, relief="solid",
+                              bg="#f4f4f4", padx=14, pady=10)
+        faces_card.pack(fill="x", pady=(0, 10))
+        ttk.Label(faces_card, text="Enrolled Faces",
+                  font=("Segoe UI", 9, "bold"),
+                  background="#f4f4f4").pack(anchor="w")
+
+        # Inner frame rebuilt on each refresh.
+        self._faces_inner = tk.Frame(faces_card, bg="#f4f4f4")
+        self._faces_inner.pack(fill="x", pady=(4, 0))
+        self._refresh_faces()
+
+        # ---- Recent Activity card ---------------------------------------
         recent_card = tk.Frame(body, bd=1, relief="solid",
                                bg="#f4f4f4", padx=14, pady=10)
         recent_card.pack(fill="x", pady=(0, 12))
@@ -273,12 +302,11 @@ class Dashboard(tk.Tk):
                   font=("Segoe UI", 9, "bold"),
                   background="#f4f4f4").pack(anchor="w")
 
-        # Inner frame holds the event chips — rebuilt in _refresh_recent.
         self._recent_frame = tk.Frame(recent_card, bg="#f4f4f4")
         self._recent_frame.pack(anchor="w", pady=(4, 0))
         self._refresh_recent()
 
-        # -- Buttons ------------------------------------------------------
+        # ---- Buttons ----------------------------------------------------
         ttk.Separator(self, orient="horizontal").pack(fill="x", padx=20)
         btn_row = ttk.Frame(self, padding=(20, 10, 20, 14))
         btn_row.pack(fill="x")
@@ -289,9 +317,7 @@ class Dashboard(tk.Tk):
 
         ttk.Button(btn_row, text="Settings",
                    command=self._settings).pack(side="left", padx=(0, 6))
-        # Label changes between "Enroll" and "Re-enroll" based on status.
-        self._enroll_btn = ttk.Button(btn_row,
-                                      text=self._enroll_label(),
+        self._enroll_btn = ttk.Button(btn_row, text=self._enroll_label(),
                                       command=self._enroll)
         self._enroll_btn.pack(side="left", padx=(0, 6))
         ttk.Button(btn_row, text="Add User",
@@ -300,6 +326,136 @@ class Dashboard(tk.Tk):
                    command=self._debug).pack(side="left", padx=(0, 6))
         ttk.Button(btn_row, text="Quit",
                    command=self._quit).pack(side="right")
+
+    # ------------------------------------------------------------------
+    # Enrolled Faces helpers
+    # ------------------------------------------------------------------
+
+    def _badge_text(self) -> str:
+        """Return the badge string for the enrolled status."""
+        enrolled = has_consent(config.DB_PATH, self._username)
+        if not enrolled:
+            return "Not enrolled"
+        try:
+            user = get_user(config.DB_PATH, self._username)
+            count = len(get_embeddings(config.DB_PATH, user["id"])) if user else 0
+            return f"Enrolled ({count})"
+        except Exception:
+            return "Enrolled"
+
+    def _refresh_faces(self) -> None:
+        """Rebuild the Enrolled Faces card from live DB data."""
+        if not self._faces_inner:
+            return
+
+        # Fetch fresh data; fall back to cache on error.
+        try:
+            faces = _get_faces(self._username)
+            self._cached_faces = faces
+            stale = False
+        except Exception:
+            faces = self._cached_faces
+            stale = True
+
+        # Update the badge count.
+        if self._badge_var:
+            self._badge_var.set(f"  {self._badge_text()}")
+            enrolled = has_consent(config.DB_PATH, self._username)
+            self._badge_lbl.configure(
+                foreground="#1a8f1a" if enrolled else "#cc0000")
+
+        # Rebuild the inner frame.
+        for w in self._faces_inner.winfo_children():
+            w.destroy()
+
+        if not faces:
+            tk.Label(self._faces_inner, text="No faces enrolled",
+                     font=("Segoe UI", 9), foreground="#aaaaaa",
+                     background="#f4f4f4").pack(anchor="w")
+            return
+
+        for face in faces:
+            row = tk.Frame(self._faces_inner, bg="#f4f4f4")
+            row.pack(fill="x", pady=(0, 4))
+
+            # Name — double-click to rename.
+            name_lbl = tk.Label(row, text=face["name"],
+                                font=("Segoe UI", 10, "bold"),
+                                bg="#f4f4f4", fg="#222222", width=14, anchor="w")
+            name_lbl.pack(side="left")
+            name_lbl.bind("<Double-Button-1>",
+                          lambda e, fid=face["id"], fn=face["name"]:
+                          self._rename_popup(fid, fn))
+
+            tk.Label(row, text=face["last_used"],
+                     font=("Segoe UI", 9), bg="#f4f4f4",
+                     fg="#888888").pack(side="left", padx=(4, 12))
+
+            tk.Button(row, text="Rename",
+                      font=("Segoe UI", 8), bg="#f4f4f4", relief="flat",
+                      fg="#1a73e8", cursor="hand2", bd=0,
+                      command=lambda fid=face["id"], fn=face["name"]:
+                      self._rename_popup(fid, fn)
+                      ).pack(side="left", padx=(0, 4))
+
+            tk.Button(row, text="Delete",
+                      font=("Segoe UI", 8), bg="#f4f4f4", relief="flat",
+                      fg="#cc0000", cursor="hand2", bd=0,
+                      command=lambda fid=face["id"], fn=face["name"]:
+                      self._delete_face(fid, fn)
+                      ).pack(side="left")
+
+        if stale:
+            tk.Label(self._faces_inner, text="⚠ refresh failed — showing cached data",
+                     font=("Segoe UI", 8), fg="#aaaaaa",
+                     background="#f4f4f4").pack(anchor="w", pady=(4, 0))
+
+    def _rename_popup(self, embedding_id: int, current_name: str) -> None:
+        """Open a Toplevel popup to rename an enrolled face."""
+        popup = tk.Toplevel(self)
+        popup.title("Rename Face")
+        popup.resizable(False, False)
+        popup.grab_set()
+
+        ttk.Label(popup, text="New name:", padding=(12, 10, 12, 4)).pack(anchor="w")
+        var = tk.StringVar(master=popup, value=current_name)
+        entry = ttk.Entry(popup, textvariable=var, width=22)
+        entry.pack(padx=12, pady=(0, 8))
+        entry.select_range(0, "end")
+        entry.focus_set()
+
+        def _confirm():
+            new = var.get().strip()
+            if new:
+                rename_embedding(config.DB_PATH, embedding_id, new)
+            popup.destroy()
+            self._refresh_faces()
+
+        entry.bind("<Return>", lambda e: _confirm())
+        btn_row = ttk.Frame(popup, padding=(12, 0, 12, 12))
+        btn_row.pack()
+        ttk.Button(btn_row, text="Cancel",
+                   command=popup.destroy).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_row, text="OK",
+                   command=_confirm).pack(side="left")
+
+        # Centre over dashboard.
+        popup.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width()  - popup.winfo_width())  // 2
+        y = self.winfo_y() + (self.winfo_height() - popup.winfo_height()) // 2
+        popup.geometry(f"+{x}+{y}")
+
+    def _delete_face(self, embedding_id: int, name: str) -> None:
+        """Confirm and delete one enrolled face."""
+        if messagebox.askyesno(
+            "Delete Face",
+            f"Remove enrolled face '{name}'?\n\n"
+            "This cannot be undone. If this is the only face enrolled, "
+            "you will need to re-enroll to use FaceLock.",
+            parent=self,
+        ):
+            delete_embedding_by_id(config.DB_PATH, embedding_id)
+            self._refresh_faces()
 
     # ------------------------------------------------------------------
     # State updates
@@ -325,8 +481,10 @@ class Dashboard(tk.Tk):
     def _pause_label(self) -> str:
         return "Resume" if self._paused else "Pause"
 
+    def _enroll_label(self) -> str:
+        return "Re-enroll" if has_consent(config.DB_PATH, self._username) else "Enroll"
+
     def _refresh_stats(self) -> None:
-        """Update the Today stats label from live DB data."""
         if not self._stats_var:
             return
         s = _today_stats(self._username)
@@ -339,7 +497,6 @@ class Dashboard(tk.Tk):
             self._stats_var.set(f"{line1}\n{line2}")
 
     def _refresh_recent(self) -> None:
-        """Rebuild the recent activity chips from live DB data."""
         if not self._recent_frame:
             return
         for w in self._recent_frame.winfo_children():
@@ -354,20 +511,14 @@ class Dashboard(tk.Tk):
 
         for ts, result in events:
             is_pass = result == "pass"
-            symbol = "✓" if is_pass else "✗"
-            color  = "#1a8f1a" if is_pass else "#cc0000"
-            age    = _event_age_label(ts)
+            color = "#1a8f1a" if is_pass else "#cc0000"
             tk.Label(self._recent_frame,
-                     text=f"{symbol} {age}",
+                     text=f"{'✓' if is_pass else '✗'} {_event_age_label(ts)}",
                      font=("Segoe UI", 9, "bold"),
                      foreground=color, background="#f4f4f4",
                      padx=6).pack(side="left")
 
-    def _enroll_label(self) -> str:
-        return "Re-enroll" if has_consent(config.DB_PATH, self._username) else "Enroll"
-
     def _refresh_camera(self) -> None:
-        """Check camera availability via IPC and update the status label."""
         if not self._camera_var:
             return
         try:
@@ -377,35 +528,28 @@ class Dashboard(tk.Tk):
             conn.close()
             if result.get("ok"):
                 self._camera_var.set("📷  Camera ready")
-                # Update label colour to green.
-                for w in self._status_frame.winfo_children():
-                    if (isinstance(w, tk.Label)
-                            and hasattr(self, "_camera_var")
-                            and w.cget("textvariable") == str(self._camera_var)):
-                        w.configure(foreground="#1a8f1a")
-                        break
+                color = "#1a8f1a"
             else:
-                reason = result.get("reason", "unknown")
-                self._camera_var.set(f"📷  Camera unavailable — {reason}")
-                for w in self._status_frame.winfo_children():
-                    if (isinstance(w, tk.Label)
-                            and hasattr(self, "_camera_var")
-                            and w.cget("textvariable") == str(self._camera_var)):
-                        w.configure(foreground="#cc0000")
-                        break
+                self._camera_var.set(
+                    f"📷  Camera unavailable — {result.get('reason', 'unknown')}")
+                color = "#cc0000"
+            for w in self._status_frame.winfo_children():
+                if (isinstance(w, tk.Label) and self._camera_var
+                        and w.cget("textvariable") == str(self._camera_var)):
+                    w.configure(foreground=color)
+                    break
         except Exception:
             if self._camera_var:
                 self._camera_var.set("📷  Core service unreachable")
         self.after(5000, self._refresh_camera)
 
     def _refresh(self) -> None:
-        """Periodic refresh of all live data (every 2 s)."""
         if self._last_auth_var:
             self._last_auth_var.set(
                 f"Last auth:  {_last_auth_label(self._username)}")
         self._refresh_stats()
         self._refresh_recent()
-        # Sync enroll button label in case enrollment status changed.
+        self._refresh_faces()
         if hasattr(self, "_enroll_btn"):
             self._enroll_btn.configure(text=self._enroll_label())
         self.after(2000, self._refresh)
@@ -423,11 +567,12 @@ class Dashboard(tk.Tk):
             self.destroy()
 
     def destroy(self) -> None:
-        # Nullify StringVars before Tcl teardown to prevent GC thread crash.
         self._last_auth_var = None
         self._stats_var = None
-        self._recent_frame = None
         self._camera_var = None
+        self._badge_var = None
+        self._recent_frame = None
+        self._faces_inner = None
         super().destroy()
 
     # ------------------------------------------------------------------
@@ -441,8 +586,6 @@ class Dashboard(tk.Tk):
         self._pause_btn.configure(text=self._pause_label())
 
     def _settings(self) -> None:
-        # The settings thread calls _close_all_windows() which destroys this
-        # dashboard — no need to schedule a redundant destroy here.
         self._on_open_settings()
 
     def _enroll(self) -> None:
@@ -453,7 +596,7 @@ class Dashboard(tk.Tk):
 
     def _debug(self) -> None:
         self._on_open_debug()
-        self.after(50, self.destroy)  # debug is a subprocess, so close manually
+        self.after(50, self.destroy)
 
     def _quit(self) -> None:
         self._on_quit()

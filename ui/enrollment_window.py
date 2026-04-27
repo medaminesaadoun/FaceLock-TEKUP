@@ -11,12 +11,27 @@ from PIL import Image, ImageDraw, ImageTk
 
 import config
 from modules.gdpr import get_consent_text, record_consent, has_consent, erase_user_data
-from modules.database import update_user_fallback
+from modules.database import update_user_fallback, get_user, get_embeddings, delete_embedding_by_id
 from modules.ipc import make_client, send, recv
 from ui._theme import apply as apply_theme, center as center_window
 
 _PREVIEW_W = 320
 _PREVIEW_H = 240
+
+def _face_age(iso_ts: str | None) -> str:
+    """Short last-used label for a face row in the picker."""
+    if not iso_ts:
+        return "never used"
+    try:
+        from datetime import datetime, timezone
+        ts = datetime.fromisoformat(iso_ts).replace(tzinfo=timezone.utc)
+        s = int((datetime.now(timezone.utc) - ts).total_seconds())
+        if s < 60:    return "just now"
+        if s < 3600:  return f"{s // 60} min ago"
+        if s < 86400: return f"{s // 3600} h ago"
+        return f"{s // 86400} days ago"
+    except Exception:
+        return "?"
 
 
 def _pose_prompt(progress: int, total: int) -> str:
@@ -75,11 +90,15 @@ class EnrollmentWindow(tk.Tk):
         self._pin_var = tk.StringVar(master=self)
         self._confirm_pin_var = tk.StringVar(master=self)
         self._face_name_var = tk.StringVar(master=self, value="")
+        # Set during face picker: ID of the specific embedding to replace.
+        self._replace_id:   int | None = None
+        self._replace_name: str | None = None
 
         # Step labels differ by mode.
         if mode == "add_user":
             self._step_names = ["Name", "Capture"]
         else:
+            # Picker step added when 2+ faces are enrolled.
             self._step_names = ["Consent", "Fallback", "Capture"]
 
         self._build_chrome()
@@ -87,6 +106,16 @@ class EnrollmentWindow(tk.Tk):
         if mode == "add_user":
             self._show_name_step()
         else:
+            # Show face picker before consent when multiple faces enrolled.
+            if has_consent(config.DB_PATH, self._username):
+                user = get_user(config.DB_PATH, self._username)
+                rows = get_embeddings(config.DB_PATH, user["id"]) if user else []
+                if len(rows) >= 2:
+                    self._step_names = ["Choose Face", "Consent", "Fallback", "Capture"]
+                    self._build_chrome()   # rebuild with 4 steps
+                    self._show_face_picker_step(rows)
+                    center_window(self)
+                    return
             self._show_consent_step()
 
         center_window(self)
@@ -145,6 +174,72 @@ class EnrollmentWindow(tk.Tk):
         ttk.Button(btn_row, text="Cancel", command=self.destroy).pack(side="left")
         ttk.Button(btn_row, text="Next",
                    command=self._check_camera_and_enroll).pack(side="right")
+
+    # ------------------------------------------------------------------
+    # Face picker step (enroll mode, 2+ faces enrolled)
+    # ------------------------------------------------------------------
+
+    def _show_face_picker_step(self, rows: list) -> None:
+        """Show a list of enrolled faces so the user can choose which to replace."""
+        self._clear()
+        self._set_step(0)
+        ttk.Label(self._frame_container, text="Which face would you like to update?",
+                  style="Section.TLabel").pack(anchor="w", pady=(0, 4))
+        ttk.Label(self._frame_container,
+                  text="Select a face to replace it, or add a new one.",
+                  style="Hint.TLabel").pack(anchor="w", pady=(0, 12))
+
+        from modules.database import get_connection
+        for emb_id, _, name in rows:
+            # Fetch last_used_at for this embedding.
+            try:
+                with get_connection(config.DB_PATH) as conn:
+                    r = conn.execute(
+                        "SELECT last_used_at FROM embeddings WHERE id = ?",
+                        (emb_id,)
+                    ).fetchone()
+                last_used = _face_age(r["last_used_at"] if r else None)
+            except Exception:
+                last_used = "?"
+
+            row_frame = tk.Frame(self._frame_container, bg="#f4f4f4",
+                                 padx=10, pady=6, relief="solid", bd=1)
+            row_frame.pack(fill="x", pady=(0, 6))
+
+            info = tk.Frame(row_frame, bg="#f4f4f4")
+            info.pack(side="left", fill="x", expand=True)
+            tk.Label(info, text=name or "Unnamed",
+                     font=("Segoe UI", 10, "bold"),
+                     bg="#f4f4f4").pack(anchor="w")
+            tk.Label(info, text=f"Last used: {last_used}",
+                     font=("Segoe UI", 9), fg="#888888",
+                     bg="#f4f4f4").pack(anchor="w")
+
+            ttk.Button(row_frame, text="Replace",
+                       command=lambda eid=emb_id, n=name: self._pick_replace(eid, n)
+                       ).pack(side="right", padx=(8, 0))
+
+        ttk.Separator(self._frame_container, orient="horizontal").pack(
+            fill="x", pady=(8, 8))
+
+        btn_row = ttk.Frame(self._frame_container)
+        btn_row.pack(fill="x")
+        ttk.Button(btn_row, text="Cancel", command=self.destroy).pack(side="right", padx=(8, 0))
+        ttk.Button(btn_row, text="+ Add as New Face",
+                   command=self._pick_add_new).pack(side="right")
+
+    def _pick_replace(self, embedding_id: int, name: str) -> None:
+        """User chose to replace a specific face — proceed to consent."""
+        self._replace_id   = embedding_id
+        self._replace_name = name or "Primary"
+        self._show_consent_step()
+
+    def _pick_add_new(self) -> None:
+        """User chose to add a new face — switch to add_user mode."""
+        self._mode = "add_user"
+        self._step_names = ["Name", "Capture"]
+        self._build_chrome()
+        self._show_name_step()
 
     # ------------------------------------------------------------------
     # Enroll mode: Consent step
@@ -344,15 +439,24 @@ class EnrollmentWindow(tk.Tk):
         self._poll_enroll_result()
 
     def _run_enroll(self) -> None:
-        # Resolve face name: use provided name or auto-generate.
-        face_name = self._face_name_var.get().strip() if self._face_name_var else ""
-        if not face_name:
-            face_name = "Primary" if self._mode == "enroll" else "User"
+        # Resolve face name and IPC mode.
+        if self._mode == "add_user":
+            face_name = self._face_name_var.get().strip() if self._face_name_var else ""
+            if not face_name:
+                face_name = "User"
+            ipc_mode = "add"
+        elif self._replace_id is not None:
+            # Per-face replacement: add the new embedding, then delete the old one.
+            face_name = self._replace_name or "Primary"
+            ipc_mode = "add"
+        else:
+            face_name = "Primary"
+            ipc_mode = "replace"
         try:
             result = _enroll_via_pipe(
                 self._username,
                 self._enroll_queue.put,
-                mode="add" if self._mode == "add_user" else "replace",
+                mode=ipc_mode,
                 face_name=face_name,
             )
         except Exception as exc:
@@ -414,6 +518,13 @@ class EnrollmentWindow(tk.Tk):
 
     def _on_enroll_done(self, result: dict) -> None:
         if result.get("ok"):
+            # Per-face replacement: remove the old embedding now that the new
+            # one has been saved successfully.
+            if self._replace_id is not None:
+                try:
+                    delete_embedding_by_id(config.DB_PATH, self._replace_id)
+                except Exception:
+                    pass
             from modules.notifications import notify
             label = "added" if self._mode == "add_user" else "enrolled"
             notify("FaceLock — Enrolled",
@@ -470,6 +581,8 @@ class EnrollmentWindow(tk.Tk):
         for attr in ("_fallback", "_pin_var", "_confirm_pin_var", "_face_name_var",
                      "_status_var", "_frame_label", "_pct_var"):
             setattr(self, attr, None)
+        self._replace_id   = None
+        self._replace_name = None
         super().destroy()
 
     def _clear(self) -> None:

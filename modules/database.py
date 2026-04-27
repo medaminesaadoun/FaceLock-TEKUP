@@ -143,6 +143,14 @@ def delete_embedding_by_id(db_path: str, embedding_id: int) -> None:
         conn.commit()
 
 
+def rename_embedding(db_path: str, embedding_id: int, new_name: str) -> None:
+    """Rename an enrolled face."""
+    with closing(get_connection(db_path)) as conn:
+        conn.execute("UPDATE embeddings SET name = ? WHERE id = ?",
+                     (new_name, embedding_id))
+        conn.commit()
+
+
 def update_last_used(db_path: str, user_id: int) -> None:
     with closing(get_connection(db_path)) as conn:
         conn.execute(

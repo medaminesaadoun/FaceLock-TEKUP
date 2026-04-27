@@ -62,6 +62,11 @@ def _load_stored_embeddings(username: str) -> list[np.ndarray]:
 
 
 def _handle_auth(username: str, detector: FaceDetector) -> dict:
+    # When paused, skip authentication entirely — treat as cancelled.
+    with _paused_lock:
+        if _paused:
+            return {"ok": False, "reason": "paused"}
+
     # Load all enrolled embeddings — one Authenticator per face.
     embeddings = _load_stored_embeddings(username)
     if not embeddings:

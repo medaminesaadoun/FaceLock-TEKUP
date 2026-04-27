@@ -212,6 +212,14 @@ class SettingsWindow(tk.Tk):
         ttk.Label(val_row, text="  (lower = stricter)",
                   style="Hint.TLabel").pack(side="left")
 
+        # Amber warning shown when tolerance is outside the safe range.
+        self._tol_warn_var = tk.StringVar(master=self, value="")
+        tk.Label(parent, textvariable=self._tol_warn_var,
+                 font=("Segoe UI", 9, "bold"),
+                 foreground="#cc7700",
+                 background=parent.cget("background") if parent.winfo_class() == "Frame" else "white"
+                 ).pack(anchor="w", pady=(0, 4))
+
         # Integer locking sliders.
         self._add_int_slider(parent, "Lock timeout",
                              "lock_timeout", 3, 30, "s")
@@ -285,7 +293,15 @@ class SettingsWindow(tk.Tk):
 
     def _on_slider_move(self, _=None) -> None:
         if self._tol_display:
-            self._tol_display.set(f"{self._tol_var.get():.2f}")
+            v = self._tol_var.get()
+            self._tol_display.set(f"{v:.2f}")
+            if hasattr(self, "_tol_warn_var") and self._tol_warn_var:
+                if v < 0.4:
+                    self._tol_warn_var.set("⚠  Below 0.40 — may reject the enrolled user")
+                elif v > 0.6:
+                    self._tol_warn_var.set("⚠  Above 0.60 — may accept an unrelated face")
+                else:
+                    self._tol_warn_var.set("")
 
     # ------------------------------------------------------------------
 
@@ -300,6 +316,7 @@ class SettingsWindow(tk.Tk):
         self._slider_vars = []
         self._tol_var = None
         self._tol_display = None
+        self._tol_warn_var = None
         self._hidden_mode_var = None
         self._mode_var = None
         self._preset_var = None
