@@ -6,3 +6,4 @@ pywin32
 bcrypt
 pillow
 pystray
+setuptools<81
