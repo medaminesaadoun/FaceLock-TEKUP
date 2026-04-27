@@ -103,6 +103,19 @@ def save_embedding(db_path: str, user_id: int, encrypted_embedding: bytes,
         conn.commit()
 
 
+def replace_embedding(db_path: str, embedding_id: int,
+                       encrypted_embedding: bytes, name: str) -> None:
+    """Replace a single embedding row by id, preserving other faces."""
+    now = datetime.now(timezone.utc).isoformat()
+    with closing(get_connection(db_path)) as conn:
+        conn.execute(
+            "UPDATE embeddings SET encrypted_embedding = ?, created_at = ?, name = ? "
+            "WHERE id = ?",
+            (encrypted_embedding, now, name, embedding_id)
+        )
+        conn.commit()
+
+
 def add_embedding(db_path: str, user_id: int, encrypted_embedding: bytes,
                   name: str = "User") -> None:
     """Add a new embedding without removing existing ones (multi-user support)."""

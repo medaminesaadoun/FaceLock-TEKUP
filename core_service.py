@@ -9,7 +9,8 @@ import numpy as np
 import config
 from modules.database import (
     initialize, get_user, get_embeddings, save_embedding, add_embedding,
-    log_auth_event, update_last_used, get_faces, delete_embedding_by_id, rename_embedding,
+    replace_embedding, log_auth_event, update_last_used, get_faces,
+    delete_embedding_by_id, rename_embedding,
 )
 from modules.encryption import generate_key, save_key, load_key, encrypt, decrypt
 from modules.face_detector import FaceDetector
@@ -120,7 +121,8 @@ def _handle_auth(username: str, detector: FaceDetector) -> dict:
 
 
 def _handle_enroll(conn, username: str, detector: FaceDetector,
-                   mode: str = "replace", face_name: str = "Primary") -> dict:
+                   mode: str = "replace", face_name: str = "Primary",
+                   embedding_id: int = 0) -> dict:
     user = get_user(config.DB_PATH, username)
     if not user:
         return {"ok": False, "reason": "no_consent"}
@@ -172,7 +174,11 @@ def _handle_enroll(conn, username: str, detector: FaceDetector,
     else:
         key = load_key(config.KEY_PATH)
 
-    if mode == "add":
+    if embedding_id > 0:
+        # Targeted re-enroll: update one specific face, preserve others.
+        replace_embedding(config.DB_PATH, embedding_id,
+                          encrypt(key, raw_bytes), face_name)
+    elif mode == "add":
         # Append without removing existing faces (multi-user support).
         add_embedding(config.DB_PATH, user["id"], encrypt(key, raw_bytes), face_name)
     else:
@@ -341,9 +347,11 @@ def _handle_client(conn, detector: FaceDetector) -> None:
         if cmd == "auth":
             send(conn, _handle_auth(username, detector))
         elif cmd == "enroll":
-            mode      = msg.get("mode", "replace")
-            face_name = msg.get("face_name", "Primary")
-            send(conn, _handle_enroll(conn, username, detector, mode, face_name))
+            mode         = msg.get("mode", "replace")
+            face_name    = msg.get("face_name", "Primary")
+            embedding_id = msg.get("embedding_id", 0)
+            send(conn, _handle_enroll(conn, username, detector, mode, face_name,
+                                       embedding_id))
         elif cmd == "presence":
             send(conn, _handle_presence(detector))
         elif cmd == "debug_stream":

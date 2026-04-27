@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw, ImageTk
 
 import config
 from modules.gdpr import get_consent_text, record_consent, has_consent, erase_user_data
-from modules.database import update_user_fallback
+from modules.database import update_user_fallback, get_faces, get_user
 from modules.ipc import make_client, send, recv
 from ui._theme import apply as apply_theme, center as center_window
 
@@ -39,16 +39,20 @@ def _check_camera_via_pipe() -> dict:
 
 def _enroll_via_pipe(username: str, msg_cb,
                      mode: str = "replace",
-                     face_name: str = "Primary") -> dict:
+                     face_name: str = "Primary",
+                     embedding_id: int = 0) -> dict:
     """Connect to core service, stream frames via msg_cb, return final result."""
     conn = make_client()
     try:
-        send(conn, {
+        payload: dict = {
             "cmd": "enroll",
             "username": username,
             "mode": mode,
             "face_name": face_name,
-        })
+        }
+        if embedding_id:
+            payload["embedding_id"] = embedding_id
+        send(conn, payload)
         while True:
             msg = recv(conn)
             if "jpeg" in msg:
@@ -62,7 +66,8 @@ def _enroll_via_pipe(username: str, msg_cb,
 class EnrollmentWindow(tk.Tk):
     def __init__(self, mode: str = "enroll") -> None:
         """
-        mode: "enroll"    — full wizard (consent → fallback → capture), replaces existing face.
+        mode: "enroll"    — full wizard (consent → fallback → capture),
+                            replaces one specific face or appends a new one.
               "add_user"  — abbreviated wizard (name → capture), appends a new face.
         """
         super().__init__()
@@ -75,19 +80,29 @@ class EnrollmentWindow(tk.Tk):
         self._pin_var = tk.StringVar(master=self)
         self._confirm_pin_var = tk.StringVar(master=self)
         self._face_name_var = tk.StringVar(master=self, value="")
+        self._embedding_id = 0
 
-        # Step labels differ by mode.
         if mode == "add_user":
             self._step_names = ["Name", "Capture"]
         else:
-            self._step_names = ["Consent", "Fallback", "Capture"]
+            faces = self._get_my_faces()
+            if len(faces) >= 2:
+                self._step_names = ["Choose Face", "Consent", "Fallback", "Capture"]
+            elif len(faces) == 1:
+                self._embedding_id = faces[0]["id"]
+                self._face_name_var.set(faces[0]["name"])
+                self._step_names = ["Consent", "Fallback", "Capture"]
+            else:
+                self._step_names = ["Consent", "Fallback", "Capture"]
 
         self._build_chrome()
 
         if mode == "add_user":
             self._show_name_step()
-        else:
+        elif self._embedding_id or len(self._get_my_faces()) <= 1:
             self._show_consent_step()
+        else:
+            self._show_face_picker_step()
 
         center_window(self)
 
@@ -116,6 +131,75 @@ class EnrollmentWindow(tk.Tk):
                 lbl.configure(foreground="#888888", font=("Segoe UI", 9))
             else:
                 lbl.configure(foreground="#aaaaaa", font=("Segoe UI", 9))
+
+    # ------------------------------------------------------------------
+    # Enroll mode: Face-picker step (only shown when 2+ faces are enrolled)
+    # ------------------------------------------------------------------
+
+    def _get_my_faces(self) -> list[dict]:
+        try:
+            user = get_user(config.DB_PATH, self._username)
+            if user:
+                return get_faces(config.DB_PATH, user["id"])
+        except Exception:
+            pass
+        return []
+
+    @staticmethod
+    def _time_ago(iso_ts: str | None) -> str:
+        if not iso_ts:
+            return "Never"
+        try:
+            from datetime import datetime, timezone as tz
+            ts = datetime.fromisoformat(iso_ts).replace(tzinfo=tz.utc)
+            s = int((datetime.now(tz.utc) - ts).total_seconds())
+            if s < 60:   return "Just now"
+            if s < 3600: return f"{s // 60} min ago"
+            if s < 86400: return f"{s // 3600} h ago"
+            return f"{s // 86400} days ago"
+        except Exception:
+            return ""
+
+    def _show_face_picker_step(self) -> None:
+        self._clear()
+        self._set_step(0)
+
+        ttk.Label(self._frame_container, text="Choose Face to Re-enroll",
+                  style="Section.TLabel").pack(anchor="w", pady=(0, 4))
+        ttk.Label(self._frame_container,
+                  text="Select which face you want to replace, or add a new one:",
+                  style="Hint.TLabel").pack(anchor="w", pady=(0, 12))
+
+        faces = self._get_my_faces()
+        face_frame = ttk.Frame(self._frame_container)
+        face_frame.pack(fill="x", pady=(0, 8))
+
+        for face in faces:
+            row = ttk.Frame(face_frame)
+            row.pack(fill="x", pady=2)
+
+            ttk.Label(row, text=face["name"], font=("Segoe UI", 10, "bold"),
+                      width=15, anchor="w").pack(side="left")
+            ttk.Label(row, text=f"Last used: {self._time_ago(face.get('last_used_at'))}",
+                      style="Hint.TLabel").pack(side="left", padx=(12, 0))
+
+            def _on_pick(f=face):
+                self._embedding_id = f["id"]
+                self._face_name_var.set(f["name"])
+                self._show_consent_step()
+
+            ttk.Button(row, text="Replace", command=_on_pick).pack(side="right")
+
+        ttk.Separator(self._frame_container, orient="horizontal").pack(fill="x", pady=(8, 0))
+
+        btn_row = ttk.Frame(self._frame_container)
+        btn_row.pack(pady=(12, 0), fill="x")
+        ttk.Button(btn_row, text="Cancel", command=self.destroy).pack(side="left")
+        ttk.Button(btn_row, text="Add as New Face",
+                   command=self._show_consent_step).pack(side="right")
+        ttk.Label(self._frame_container,
+                  text='"Add as New Face" keeps your existing faces and adds another.',
+                  style="Hint.TLabel").pack(anchor="e", pady=(4, 0))
 
     # ------------------------------------------------------------------
     # Add-user mode: Name step
@@ -348,12 +432,14 @@ class EnrollmentWindow(tk.Tk):
         face_name = self._face_name_var.get().strip() if self._face_name_var else ""
         if not face_name:
             face_name = "Primary" if self._mode == "enroll" else "User"
+        mode = "replace" if self._embedding_id else "add"
         try:
             result = _enroll_via_pipe(
                 self._username,
                 self._enroll_queue.put,
-                mode="add" if self._mode == "add_user" else "replace",
+                mode=mode,
                 face_name=face_name,
+                embedding_id=self._embedding_id,
             )
         except Exception as exc:
             result = {"ok": False, "reason": str(exc)}
@@ -415,7 +501,12 @@ class EnrollmentWindow(tk.Tk):
     def _on_enroll_done(self, result: dict) -> None:
         if result.get("ok"):
             from modules.notifications import notify
-            label = "added" if self._mode == "add_user" else "enrolled"
+            if self._embedding_id:
+                label = "updated"
+            elif self._mode == "add_user":
+                label = "added"
+            else:
+                label = "enrolled"
             notify("FaceLock — Enrolled",
                    f"Face {label} successfully for {self._username}.")
             self._show_success_step()
@@ -449,11 +540,16 @@ class EnrollmentWindow(tk.Tk):
         ttk.Label(self._frame_container, text="✓",
                   font=("Segoe UI", 52, "bold"), foreground="#1a8f1a").pack(pady=(20, 0))
 
-        title = "Face Added!" if self._mode == "add_user" else "You're all set!"
+        if self._embedding_id:
+            title = "Face Updated!"
+        elif self._mode == "add_user":
+            title = "Face Added!"
+        else:
+            title = "You're all set!"
         ttk.Label(self._frame_container, text=title,
                   font=("Segoe UI", 14, "bold")).pack(pady=(8, 2))
         ttk.Label(self._frame_container,
-                  text=f"Enrolled as  {self._username}",
+                  text=f"Updated {self._username}" if self._embedding_id else f"Enrolled as  {self._username}",
                   font=("Segoe UI", 10)).pack()
         ttk.Label(self._frame_container,
                   text="FaceLock will recognise this face\nwhen unlocking the device.",
