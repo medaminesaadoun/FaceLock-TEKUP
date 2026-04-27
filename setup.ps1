@@ -212,7 +212,7 @@ function Invoke-Install {
     Blank
     Info "Registering scheduled tasks..."
 
-    # Verify required files exist before calling schtasks.
+    # Verify required files exist before registering tasks.
     Info "pythonw.exe : $PYTHONW_EXE"
     Info "core_service: $CORE_PY"
     Info "main.py     : $MAIN_PY"
@@ -228,33 +228,31 @@ function Invoke-Install {
         return
     }
 
-    foreach ($t in @($TASK_CORE, $TASK_MODEA)) {
-        schtasks /query /tn $t 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) { schtasks /delete /f /tn $t | Out-Null }
-    }
+    # Use Register-ScheduledTask (PowerShell cmdlet) instead of schtasks.exe.
+    # Paths are passed as separate parameters so there are no quoting issues,
+    # regardless of spaces or special characters in the install path.
+    try {
+        # Core service - starts immediately at logon.
+        $action  = New-ScheduledTaskAction -Execute $PYTHONW_EXE -Argument "`"$CORE_PY`""
+        $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+        $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0
+        Register-ScheduledTask -TaskName $TASK_CORE -Action $action `
+            -Trigger $trigger -Settings $settings -Force | Out-Null
+        OK "Registered: $TASK_CORE  (starts on logon)"
 
-    # Build the task command strings with short (8.3) paths to avoid quoting issues.
-    $pyCmd  = (cmd /c "for %I in (`"$PYTHONW_EXE`") do @echo %~sI").Trim()
-    $coreCmd = (cmd /c "for %I in (`"$CORE_PY`") do @echo %~sI").Trim()
-    $mainCmd = (cmd /c "for %I in (`"$MAIN_PY`") do @echo %~sI").Trim()
-
-    schtasks /create /f /tn $TASK_CORE `
-             /tr "`"$pyCmd`" `"$coreCmd`"" `
-             /sc ONLOGON /ru $env:USERNAME | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Err "Failed to register $TASK_CORE (schtasks exit $LASTEXITCODE)."
+        # Mode A - starts 1 minute after logon.
+        $action2  = New-ScheduledTaskAction -Execute $PYTHONW_EXE -Argument "`"$MAIN_PY`" mode-a"
+        $trigger2 = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+        $trigger2.Delay = "PT1M"
+        $settings2 = New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0
+        Register-ScheduledTask -TaskName $TASK_MODEA -Action $action2 `
+            -Trigger $trigger2 -Settings $settings2 -Force | Out-Null
+        OK "Registered: $TASK_MODEA  (starts 1 min after logon)"
+    } catch {
+        Err "Failed to register scheduled tasks: $_"
+        Warn "Try running Setup.bat as Administrator."
         return
     }
-    OK "Registered: $TASK_CORE  (starts on logon)"
-
-    schtasks /create /f /tn $TASK_MODEA `
-             /tr "`"$pyCmd`" `"$mainCmd`" mode-a" `
-             /sc ONLOGON /ru $env:USERNAME /delay 0:01 | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Err "Failed to register $TASK_MODEA (schtasks exit $LASTEXITCODE)."
-        return
-    }
-    OK "Registered: $TASK_MODEA  (starts 1 min after logon)"
 
     # 7. Desktop shortcut.
     Blank
@@ -305,10 +303,10 @@ function Invoke-Uninstall {
     Blank
     Info "Removing scheduled tasks..."
     foreach ($t in @($TASK_CORE, $TASK_MODEA)) {
-        schtasks /query /tn $t 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) {
-            schtasks /end    /tn $t 2>&1 | Out-Null
-            schtasks /delete /f /tn $t   | Out-Null
+        $existing = Get-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue
+        if ($existing) {
+            Stop-ScheduledTask  -TaskName $t -ErrorAction SilentlyContinue
+            Unregister-ScheduledTask -TaskName $t -Confirm:$false
             OK "Removed: $t"
         } else {
             Info "Not found (already removed): $t"
