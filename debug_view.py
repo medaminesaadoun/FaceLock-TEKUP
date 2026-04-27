@@ -28,8 +28,8 @@ _WHITE  = (255, 255, 255)
 _BLACK  = (0, 0, 0)
 
 
-def _load_stored_embeddings() -> list[np.ndarray]:
-    """Load all enrolled face embeddings for the current user."""
+def _load_stored_embeddings() -> list[tuple[str, np.ndarray]]:
+    """Load all enrolled face embeddings as (name, embedding) pairs."""
     try:
         user = get_user(config.DB_PATH, getpass.getuser())
         if not user:
@@ -39,9 +39,9 @@ def _load_stored_embeddings() -> list[np.ndarray]:
             return []
         key = load_key(config.KEY_PATH)
         result = []
-        for _, blob, _ in rows:
+        for _, blob, name in rows:
             try:
-                result.append(bytes_to_embedding(decrypt(key, blob)))
+                result.append((name or "Unnamed", bytes_to_embedding(decrypt(key, blob))))
             except Exception:
                 continue
         return result
@@ -73,9 +73,9 @@ def _draw_text(frame, text: str, pos: tuple, color=_WHITE, scale: float = 0.6) -
 def run() -> None:
     initialize(config.DB_PATH)
     # Load all enrolled embeddings — one Authenticator per face.
-    stored_list = _load_stored_embeddings()
+    stored_list = _load_stored_embeddings()   # [(name, embedding), ...]
     tolerance   = get_tolerance(config.SETTINGS_PATH)
-    auths = [Authenticator(emb, tolerance) for emb in stored_list]
+    auths = [Authenticator(emb, tolerance) for _, emb in stored_list]
 
     print("FaceLock Debug View — press Q to quit")
     print("Connecting to core service...")
@@ -106,9 +106,11 @@ def run() -> None:
             emb_bytes = result.get("embedding")
             if face_count == 1 and stored_list and emb_bytes:
                 emb = bytes_to_embedding(emb_bytes)
-                # Compare against all enrolled faces; show best (minimum) distance.
-                dists = [float(np.linalg.norm(s - emb)) for s in stored_list]
-                best_dist = min(dists)
+                # Compare against all enrolled faces; find best (minimum) distance.
+                dists = [float(np.linalg.norm(s - emb)) for _, s in stored_list]
+                best_idx  = int(np.argmin(dists))
+                best_dist = dists[best_idx]
+                best_name = stored_list[best_idx][0]
                 match = best_dist <= tolerance
                 x, y, w, h = boxes[0]
                 cv2.rectangle(frame, (x, y), (x + w, y + h),
@@ -116,11 +118,18 @@ def run() -> None:
                 results = [a.feed(emb) for a in auths]
                 granted  = any(results)
                 best_streak = max(a.streak for a in auths)
-                status_text = "AUTHENTICATED" if granted else ("MATCH" if match else "NO MATCH")
-                status_color = _GREEN if (match or granted) else _RED
-                face_label = f"({len(stored_list)} faces enrolled)"
+                if granted:
+                    status_text  = f"AUTHENTICATED — {best_name}"
+                    status_color = _GREEN
+                elif match:
+                    status_text  = f"MATCH — {best_name}"
+                    status_color = _GREEN
+                else:
+                    status_text  = "NO MATCH"
+                    status_color = _RED
+                face_label    = f"({len(stored_list)} face{'s' if len(stored_list) != 1 else ''} enrolled)"
                 distance_text = f"Best dist: {best_dist:.3f}  threshold: {tolerance}  {face_label}"
-                streak_text = f"Streak: {best_streak} / {config.CONSECUTIVE_FRAMES_REQUIRED}"
+                streak_text   = f"Streak: {best_streak} / {config.CONSECUTIVE_FRAMES_REQUIRED}"
             elif face_count == 0 and auths:
                 for a in auths:
                     a.reset()
