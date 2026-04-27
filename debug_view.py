@@ -28,7 +28,8 @@ _WHITE  = (255, 255, 255)
 _BLACK  = (0, 0, 0)
 
 
-def _load_stored_embeddings() -> list:
+def _load_stored_embeddings() -> list[tuple[int, np.ndarray, str]]:
+    """Return all stored faces as (id, embedding, name) tuples."""
     try:
         user = get_user(config.DB_PATH, getpass.getuser())
         if not user:
@@ -38,9 +39,9 @@ def _load_stored_embeddings() -> list:
             return []
         key = load_key(config.KEY_PATH)
         result = []
-        for _, blob, _ in rows:
+        for emb_id, blob, name in rows:
             try:
-                result.append(bytes_to_embedding(decrypt(key, blob)))
+                result.append((emb_id, bytes_to_embedding(decrypt(key, blob)), name))
             except Exception:
                 continue
         return result
@@ -72,10 +73,13 @@ def _draw_text(frame, text: str, pos: tuple, color=_WHITE, scale: float = 0.6) -
 def run() -> None:
     initialize(config.DB_PATH)
     embeddings = _load_stored_embeddings()
+    emb_arrays = [emb for _, emb, _ in embeddings]
+    names = [name for _, _, name in embeddings]
     tolerance = get_tolerance(config.SETTINGS_PATH)
-    auths = [Authenticator(emb, tolerance) for emb in embeddings]
+    auths = [Authenticator(emb, tolerance) for emb in emb_arrays]
 
     print("FaceLock Debug View — press Q to quit")
+    print(f"Loaded {len(names)} face(s): {', '.join(names) if names else 'none'}")
     print("Connecting to core service...")
 
     prev_time = time.monotonic()
@@ -93,7 +97,7 @@ def run() -> None:
             fps = 1.0 / max(now - prev_time, 1e-6)
             prev_time = now
 
-            status_text = "NOT ENROLLED" if not embeddings else "NO FACE"
+            status_text = "NOT ENROLLED" if not emb_arrays else "NO FACE"
             status_color = _WHITE
             distance_text = ""
             streak_text = ""
@@ -102,17 +106,29 @@ def run() -> None:
                 cv2.rectangle(frame, (x, y), (x + w, y + h), _YELLOW, 2)
 
             emb_bytes = result.get("embedding")
-            if face_count == 1 and embeddings and emb_bytes:
+            if face_count == 1 and emb_arrays and emb_bytes:
                 emb = bytes_to_embedding(emb_bytes)
-                dist = float(min(np.linalg.norm(e - emb) for e in embeddings))
-                match = dist <= tolerance
+                dists = [float(np.linalg.norm(e - emb)) for e in emb_arrays]
+                best_idx = int(np.argmin(dists))
+                best_dist = dists[best_idx]
+                best_name = names[best_idx]
+                match = best_dist <= tolerance
                 x, y, w, h = boxes[0]
                 cv2.rectangle(frame, (x, y), (x + w, y + h),
                               _GREEN if match else _RED, 2)
-                granted = any(a.feed(emb) for a in auths)
-                status_text = "AUTHENTICATED" if granted else ("MATCH" if match else "NO MATCH")
-                status_color = _GREEN if (match or granted) else _RED
-                distance_text = f"Distance: {dist:.3f}  (threshold: {tolerance})"
+                results = [a.feed(emb) for a in auths]
+                granted = any(results)
+                if granted:
+                    winner = names[results.index(True)]
+                    status_text = f"AUTHENTICATED as {winner}"
+                    status_color = _GREEN
+                elif match:
+                    status_text = f"MATCHED: {best_name}"
+                    status_color = _YELLOW
+                else:
+                    status_text = "NO MATCH"
+                    status_color = _RED
+                distance_text = f"Distance: {best_dist:.3f}  →  {best_name}  (threshold: {tolerance})"
                 streak_text = f"Streak: {max(a.streak for a in auths)} / {config.CONSECUTIVE_FRAMES_REQUIRED}"
             elif face_count == 0 and auths:
                 for a in auths:
