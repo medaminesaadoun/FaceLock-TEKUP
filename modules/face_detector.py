@@ -19,11 +19,15 @@ class FaceDetector:
         rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
         result = self._detector.detect(mp_image)
-        return [
-            (d.bounding_box.origin_x, d.bounding_box.origin_y,
-             d.bounding_box.width, d.bounding_box.height)
-            for d in result.detections
-        ]
+        h, w = frame_bgr.shape[:2]
+        boxes = []
+        for d in result.detections:
+            x = max(0, d.bounding_box.origin_x)
+            y = max(0, d.bounding_box.origin_y)
+            bw = min(d.bounding_box.width, w - x)
+            bh = min(d.bounding_box.height, h - y)
+            boxes.append((x, y, bw, bh))
+        return boxes
 
     def has_exactly_one_face(self, frame_bgr: np.ndarray) -> bool:
         return len(self.find_faces(frame_bgr)) == 1

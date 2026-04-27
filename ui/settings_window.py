@@ -186,6 +186,11 @@ class SettingsWindow(tk.Tk):
 
     def _build_advanced_content(self, parent: ttk.Frame) -> None:
         """Tolerance slider + three integer locking sliders."""
+        # Tolerance warning label (appears above slider when out of safe range).
+        self._tol_warning_var = tk.StringVar(master=self, value="")
+        ttk.Label(parent, textvariable=self._tol_warning_var,
+                  foreground="#cc6600", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(0, 4))
+
         # Tolerance slider.
         tol_frame = ttk.Frame(parent)
         tol_frame.pack(fill="x", pady=(0, 4))
@@ -286,6 +291,16 @@ class SettingsWindow(tk.Tk):
     def _on_slider_move(self, _=None) -> None:
         if self._tol_display:
             self._tol_display.set(f"{self._tol_var.get():.2f}")
+        if hasattr(self, "_tol_warning_var") and self._tol_warning_var:
+            tol = self._tol_var.get()
+            if tol < 0.4:
+                self._tol_warning_var.set(
+                    "Warning: Low tolerance — may reject your face frequently")
+            elif tol > 0.6:
+                self._tol_warning_var.set(
+                    "Warning: High tolerance — may accept unauthorized faces")
+            else:
+                self._tol_warning_var.set("")
 
     # ------------------------------------------------------------------
 
@@ -300,6 +315,7 @@ class SettingsWindow(tk.Tk):
         self._slider_vars = []
         self._tol_var = None
         self._tol_display = None
+        self._tol_warning_var = None
         self._hidden_mode_var = None
         self._mode_var = None
         self._preset_var = None

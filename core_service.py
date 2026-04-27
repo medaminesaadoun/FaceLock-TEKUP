@@ -67,6 +67,10 @@ def _handle_auth(username: str, detector: FaceDetector) -> dict:
     if not embeddings:
         return {"ok": False, "reason": "not_enrolled"}
 
+    with _paused_lock:
+        if _paused:
+            return {"ok": False, "reason": "paused"}
+
     user = get_user(config.DB_PATH, username)
     tolerance = get_tolerance(config.SETTINGS_PATH)
     # Each stored face gets its own streak counter; access granted if any matches.
@@ -77,6 +81,9 @@ def _handle_auth(username: str, detector: FaceDetector) -> dict:
         try:
             deadline = time.monotonic() + config.AUTO_LOCK_TIMEOUT_SECONDS
             while time.monotonic() < deadline:
+                with _paused_lock:
+                    if _paused:
+                        return {"ok": False, "reason": "paused"}
                 # Abort early if the lock was cleared externally (e.g. PIN auth).
                 with _locked_lock:
                     if not _locked:
