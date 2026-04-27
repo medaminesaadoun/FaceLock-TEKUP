@@ -120,6 +120,46 @@ def _query_paused() -> bool:
         return False
 
 
+def _get_faces_data(username: str) -> list[dict]:
+    """Fetch enrolled faces metadata via IPC. Returns empty list on failure."""
+    try:
+        conn = make_client()
+        send(conn, {"cmd": "list_faces", "username": username})
+        result = recv(conn)
+        conn.close()
+        if result.get("ok"):
+            return result.get("faces", [])
+        return []
+    except Exception:
+        return []
+
+
+def _time_ago(iso_ts: str | None) -> str:
+    """Human-readable relative time. Returns 'Never' for None."""
+    if not iso_ts:
+        return "Never"
+    try:
+        ts = datetime.fromisoformat(iso_ts).replace(tzinfo=timezone.utc)
+        s = int((datetime.now(timezone.utc) - ts).total_seconds())
+        if s < 60:   return "Just now"
+        if s < 3600: return f"{s // 60} min ago"
+        if s < 86400: return f"{s // 3600} h ago"
+        return f"{s // 86400} days ago"
+    except Exception:
+        return ""
+
+
+def _date_label(iso_ts: str | None) -> str:
+    """Short date label for creation time. Returns '' for None."""
+    if not iso_ts:
+        return ""
+    try:
+        ts = datetime.fromisoformat(iso_ts).replace(tzinfo=timezone.utc)
+        return ts.strftime("%b %d")
+    except Exception:
+        return ""
+
+
 # ---------------------------------------------------------------------------
 # Dashboard window
 # ---------------------------------------------------------------------------
@@ -147,6 +187,9 @@ class Dashboard(tk.Tk):
         self._last_auth_var: tk.StringVar | None = None
         self._stats_var: tk.StringVar | None = None
         self._recent_frame: tk.Frame | None = None
+        self._faces_frame: tk.Frame | None = None
+        self._faces_cache: list[dict] = []
+        self._face_count_var: tk.StringVar | None = None
 
         self._build()
         center_window(self)
@@ -226,7 +269,8 @@ class Dashboard(tk.Tk):
 
         badge_color = "#1a8f1a" if enrolled else "#cc0000"
         badge_text  = "Enrolled" if enrolled else "Not enrolled"
-        tk.Label(user_row, text=f"  {badge_text}",
+        self._face_count_var = tk.StringVar(master=self, value=badge_text)
+        tk.Label(user_row, textvariable=self._face_count_var,
                  foreground=badge_color, font=("Segoe UI", 9, "bold"),
                  background="#f4f4f4").pack(side="left")
 
@@ -264,6 +308,23 @@ class Dashboard(tk.Tk):
                  font=("Segoe UI", 9), foreground="#444444",
                  background="#f4f4f4", justify="left").pack(anchor="w", pady=(4, 0))
         self._refresh_stats()
+
+        # -- Enrolled Faces card ------------------------------------------
+        faces_card = tk.Frame(body, bd=1, relief="solid",
+                               bg="#f4f4f4", padx=14, pady=10)
+        faces_card.pack(fill="x", pady=(0, 10))
+
+        faces_header = tk.Frame(faces_card, bg="#f4f4f4")
+        faces_header.pack(fill="x")
+        ttk.Label(faces_header, text="Enrolled Faces",
+                  font=("Segoe UI", 9, "bold"),
+                  background="#f4f4f4").pack(side="left", anchor="w")
+        ttk.Button(faces_header, text="+ Add Face",
+                   command=self._add_user).pack(side="right")
+
+        self._faces_frame = tk.Frame(faces_card, bg="#f4f4f4")
+        self._faces_frame.pack(fill="x", pady=(6, 0))
+        self._refresh_faces()
 
         # -- Recent Activity card ----------------------------------------
         recent_card = tk.Frame(body, bd=1, relief="solid",
@@ -363,6 +424,154 @@ class Dashboard(tk.Tk):
                      foreground=color, background="#f4f4f4",
                      padx=6).pack(side="left")
 
+    def _refresh_faces(self) -> None:
+        """Fetch enrolled faces and rebuild the faces list."""
+        if not self._faces_frame:
+            return
+        faces = _get_faces_data(self._username)
+        if faces:
+            self._faces_cache = faces
+        else:
+            faces = self._faces_cache
+
+        for w in self._faces_frame.winfo_children():
+            w.destroy()
+
+        # Update face count badge in Account section.
+        enrolled = has_consent(config.DB_PATH, self._username)
+        if self._face_count_var:
+            if enrolled and faces:
+                n = len(faces)
+                self._face_count_var.set(f"Enrolled  ·  {n} face{'s' if n != 1 else ''}")
+            elif enrolled:
+                self._face_count_var.set("Enrolled")
+            else:
+                self._face_count_var.set("Not enrolled")
+
+        if not faces:
+            tk.Label(self._faces_frame, text="No faces enrolled",
+                     font=("Segoe UI", 9), foreground="#aaaaaa",
+                     background="#f4f4f4").pack(side="left")
+            return
+
+        for face in faces:
+            row = tk.Frame(self._faces_frame, bg="#f4f4f4",
+                           padx=2, pady=2)
+            row.pack(fill="x")
+
+            # Colored dot
+            dot = tk.Label(row, text="●", font=("Segoe UI", 10),
+                           foreground="#1a73e8", background="#f4f4f4")
+            dot.pack(side="left")
+
+            name_label = tk.Label(
+                row, text=face["name"],
+                font=("Segoe UI", 10, "bold"),
+                foreground="#1a1a1a", background="#f4f4f4",
+                cursor="hand2")
+            name_label.pack(side="left", padx=(6, 0))
+
+            def _on_dblclick(e, fid=face["id"], name=face["name"]):
+                self._rename_face(fid, name)
+
+            name_label.bind("<Double-1>", _on_dblclick)
+
+            # Sub-details
+            added = _date_label(face.get("created_at"))
+            used = _time_ago(face.get("last_used_at"))
+            tk.Label(row, text=f"  Added {added}",
+                     font=("Segoe UI", 8), foreground="#888888",
+                     background="#f4f4f4").pack(side="left", padx=(8, 0))
+            if used != "Never":
+                tk.Label(row, text=f"  ·  Last used {used}",
+                         font=("Segoe UI", 8), foreground="#888888",
+                         background="#f4f4f4").pack(side="left")
+
+            # Delete button — hidden if it's the only face.
+            if len(faces) > 1:
+                del_btn = tk.Button(
+                    row, text="✕", font=("Segoe UI", 9, "bold"),
+                    bg="#f4f4f4", fg="#aa2222", relief="flat",
+                    cursor="hand2", activebackground="#f4f4f4",
+                    activeforeground="#ff0000",
+                    command=lambda fid=face["id"], fn=face["name"]: self._delete_face(fid, fn))
+                del_btn.pack(side="right")
+
+    def _delete_face(self, face_id: int, face_name: str) -> None:
+        from tkinter import messagebox
+        if not messagebox.askyesno(
+            "Delete Face",
+            f'Remove "{face_name}" from enrolled faces?\n\n'
+            "This face will no longer be able to unlock.\nThis cannot be undone.",
+        ):
+            return
+        try:
+            conn = make_client()
+            send(conn, {"cmd": "delete_face", "username": self._username,
+                        "embedding_id": face_id})
+            result = recv(conn)
+            conn.close()
+            if result.get("ok"):
+                self._refresh_faces()
+            else:
+                reason = result.get("reason", "unknown error")
+                messagebox.showerror("Error", f"Could not delete face: {reason}")
+        except Exception as exc:
+            messagebox.showerror("Error", f"Could not delete face: {exc}")
+
+    def _rename_face(self, face_id: int, current_name: str) -> None:
+        dialog = tk.Toplevel(self)
+        dialog.title("Rename Face")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        body = ttk.Frame(dialog, padding=(16, 12, 16, 12))
+        body.pack()
+        ttk.Label(body, text="New name:").pack(anchor="w")
+        name_var = tk.StringVar(master=dialog, value=current_name)
+        entry = ttk.Entry(body, textvariable=name_var, width=24)
+        entry.pack(pady=(4, 12))
+        entry.selection_range(0, "end")
+        entry.focus_set()
+
+        error_var = tk.StringVar(master=dialog, value="")
+        ttk.Label(body, textvariable=error_var,
+                  foreground="#cc0000", font=("Segoe UI", 9)).pack()
+
+        def _save() -> None:
+            new = name_var.get().strip()
+            if not new:
+                error_var.set("Name cannot be empty")
+                return
+            if new == current_name:
+                dialog.destroy()
+                return
+            try:
+                conn = make_client()
+                send(conn, {"cmd": "rename_face", "username": self._username,
+                            "embedding_id": face_id, "new_name": new})
+                result = recv(conn)
+                conn.close()
+                if result.get("ok"):
+                    dialog.destroy()
+                    self._refresh_faces()
+                else:
+                    error_var.set(result.get("reason", "unknown error"))
+            except Exception as exc:
+                error_var.set(str(exc))
+
+        btn_row = ttk.Frame(body)
+        btn_row.pack(pady=(12, 0), fill="x")
+        ttk.Button(btn_row, text="Cancel",
+                   command=dialog.destroy).pack(side="left")
+        ttk.Button(btn_row, text="Save",
+                   command=_save).pack(side="right")
+
+        dialog.bind("<Return>", lambda e: _save())
+        dialog.bind("<Escape>", lambda e: dialog.destroy())
+        center_window(dialog)
+
     def _enroll_label(self) -> str:
         return "Re-enroll" if has_consent(config.DB_PATH, self._username) else "Enroll"
 
@@ -405,6 +614,7 @@ class Dashboard(tk.Tk):
                 f"Last auth:  {_last_auth_label(self._username)}")
         self._refresh_stats()
         self._refresh_recent()
+        self._refresh_faces()
         # Sync enroll button label in case enrollment status changed.
         if hasattr(self, "_enroll_btn"):
             self._enroll_btn.configure(text=self._enroll_label())
@@ -428,6 +638,9 @@ class Dashboard(tk.Tk):
         self._stats_var = None
         self._recent_frame = None
         self._camera_var = None
+        self._faces_frame = None
+        self._faces_cache = []
+        self._face_count_var = None
         super().destroy()
 
     # ------------------------------------------------------------------

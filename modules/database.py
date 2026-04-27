@@ -136,6 +136,18 @@ def get_embedding(db_path: str, user_id: int) -> Optional[bytes]:
         return bytes(row["encrypted_embedding"]) if row else None
 
 
+def get_faces(db_path: str, user_id: int) -> list[dict]:
+    """Return lightweight face metadata for all enrolled faces."""
+    with closing(get_connection(db_path)) as conn:
+        rows = conn.execute(
+            "SELECT id, name, created_at, last_used_at FROM embeddings WHERE user_id = ?",
+            (user_id,)
+        ).fetchall()
+        return [{"id": r["id"], "name": r["name"] or "User",
+                 "created_at": r["created_at"], "last_used_at": r["last_used_at"]}
+                for r in rows]
+
+
 def delete_embedding_by_id(db_path: str, embedding_id: int) -> None:
     """Delete a specific enrolled face by its embedding row id."""
     with closing(get_connection(db_path)) as conn:
@@ -143,11 +155,21 @@ def delete_embedding_by_id(db_path: str, embedding_id: int) -> None:
         conn.commit()
 
 
-def update_last_used(db_path: str, user_id: int) -> None:
+def rename_embedding(db_path: str, embedding_id: int, new_name: str) -> None:
+    """Rename a specific enrolled face."""
     with closing(get_connection(db_path)) as conn:
         conn.execute(
-            "UPDATE embeddings SET last_used_at = ? WHERE user_id = ?",
-            (datetime.now(timezone.utc).isoformat(), user_id)
+            "UPDATE embeddings SET name = ? WHERE id = ?",
+            (new_name, embedding_id)
+        )
+        conn.commit()
+
+
+def update_last_used(db_path: str, embedding_id: int) -> None:
+    with closing(get_connection(db_path)) as conn:
+        conn.execute(
+            "UPDATE embeddings SET last_used_at = ? WHERE id = ?",
+            (datetime.now(timezone.utc).isoformat(), embedding_id)
         )
         conn.commit()
 

@@ -9,7 +9,7 @@ import numpy as np
 import config
 from modules.database import (
     initialize, get_user, get_embeddings, save_embedding, add_embedding,
-    log_auth_event, update_last_used,
+    log_auth_event, update_last_used, get_faces, delete_embedding_by_id, rename_embedding,
 )
 from modules.encryption import generate_key, save_key, load_key, encrypt, decrypt
 from modules.face_detector import FaceDetector
@@ -43,8 +43,8 @@ def _open_camera() -> cv2.VideoCapture:
     return cap
 
 
-def _load_stored_embeddings(username: str) -> list[np.ndarray]:
-    """Return all decrypted stored embeddings for a user (multi-user support)."""
+def _load_stored_embeddings(username: str) -> list[tuple[int, np.ndarray, str]]:
+    """Return all decrypted stored embeddings — (id, embedding, name)."""
     user = get_user(config.DB_PATH, username)
     if not user:
         return []
@@ -53,9 +53,9 @@ def _load_stored_embeddings(username: str) -> list[np.ndarray]:
         return []
     key = load_key(config.KEY_PATH)
     result = []
-    for _, blob, _ in rows:
+    for emb_id, blob, name in rows:
         try:
-            result.append(bytes_to_embedding(decrypt(key, blob)))
+            result.append((emb_id, bytes_to_embedding(decrypt(key, blob)), name))
         except Exception:
             continue
     return result
@@ -71,10 +71,10 @@ def _handle_auth(username: str, detector: FaceDetector) -> dict:
         if _paused:
             return {"ok": False, "reason": "paused"}
 
-    user = get_user(config.DB_PATH, username)
     tolerance = get_tolerance(config.SETTINGS_PATH)
     # Each stored face gets its own streak counter; access granted if any matches.
-    auths = [Authenticator(emb, tolerance) for emb in embeddings]
+    auth_data = [(emb_id, Authenticator(emb, tolerance), name)
+                 for emb_id, emb, name in embeddings]
 
     with _camera_lock:
         cap = _open_camera()
@@ -95,7 +95,7 @@ def _handle_auth(username: str, detector: FaceDetector) -> dict:
                 small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
                 boxes = detector.find_faces(small)
                 if len(boxes) != 1:
-                    for auth in auths:
+                    for _, auth, _ in auth_data:
                         auth.reset()
                     time.sleep(0.1)
                     continue
@@ -104,11 +104,13 @@ def _handle_auth(username: str, detector: FaceDetector) -> dict:
                     time.sleep(0.1)
                     continue
                 # Feed live embedding to all authenticators simultaneously.
-                results = [auth.feed(live_emb) for auth in auths]
-                if any(results):
-                    log_auth_event(config.DB_PATH, username, "pass", "face")
-                    update_last_used(config.DB_PATH, user["id"])
-                    return {"ok": True}
+                results = [(emb_id, auth.feed(live_emb))
+                           for emb_id, auth, _ in auth_data]
+                for emb_id, matched in results:
+                    if matched:
+                        update_last_used(config.DB_PATH, emb_id)
+                        log_auth_event(config.DB_PATH, username, "pass", "face")
+                        return {"ok": True}
                 time.sleep(0.1)
         finally:
             cap.release()
@@ -256,6 +258,40 @@ def _handle_status() -> dict:
     return {"paused": paused, "locked": locked}
 
 
+def _handle_list_faces(username: str) -> dict:
+    user = get_user(config.DB_PATH, username)
+    if not user:
+        return {"ok": False, "reason": "not_enrolled"}
+    faces = get_faces(config.DB_PATH, user["id"])
+    return {"ok": True, "faces": faces}
+
+
+def _handle_delete_face(username: str, embedding_id: int) -> dict:
+    user = get_user(config.DB_PATH, username)
+    if not user:
+        return {"ok": False, "reason": "not_enrolled"}
+    faces = get_faces(config.DB_PATH, user["id"])
+    if len(faces) <= 1:
+        return {"ok": False, "reason": "last_face"}
+    if not any(f["id"] == embedding_id for f in faces):
+        return {"ok": False, "reason": "not_found"}
+    delete_embedding_by_id(config.DB_PATH, embedding_id)
+    return {"ok": True}
+
+
+def _handle_rename_face(username: str, embedding_id: int, new_name: str) -> dict:
+    if not new_name.strip():
+        return {"ok": False, "reason": "empty_name"}
+    user = get_user(config.DB_PATH, username)
+    if not user:
+        return {"ok": False, "reason": "not_enrolled"}
+    faces = get_faces(config.DB_PATH, user["id"])
+    if not any(f["id"] == embedding_id for f in faces):
+        return {"ok": False, "reason": "not_found"}
+    rename_embedding(config.DB_PATH, embedding_id, new_name.strip())
+    return {"ok": True}
+
+
 def _handle_debug_stream(conn, detector: FaceDetector) -> None:
     """Stream frames continuously, including embeddings, over one persistent connection."""
     with _camera_lock:
@@ -325,6 +361,12 @@ def _handle_client(conn, detector: FaceDetector) -> None:
             send(conn, _handle_unlock())
         elif cmd == "status":
             send(conn, _handle_status())
+        elif cmd == "list_faces":
+            send(conn, _handle_list_faces(username))
+        elif cmd == "delete_face":
+            send(conn, _handle_delete_face(username, msg.get("embedding_id", 0)))
+        elif cmd == "rename_face":
+            send(conn, _handle_rename_face(username, msg.get("embedding_id", 0), msg.get("new_name", "")))
         else:
             send(conn, {"ok": False, "reason": "unknown_cmd"})
     except Exception as exc:
