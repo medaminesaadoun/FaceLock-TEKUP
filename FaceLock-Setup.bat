@@ -14,6 +14,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
   "$t=[IO.Path]::GetTempFileName()+'.ps1';" ^
   "[IO.File]::WriteAllText($t,$ps,[Text.Encoding]::UTF8);" ^
   "try{& $t}finally{Remove-Item $t -EA 0} }"
+if %errorlevel% neq 0 (
+    echo.
+    echo  [!!] Setup failed. See the errors above.
+    pause
+)
 exit /b
 ##::POWERSHELL_START::##
 #Requires -Version 5.1
@@ -29,7 +34,8 @@ $ErrorActionPreference = "Stop"
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
 $APP          = "FaceLock"
-$SOURCE_DIR   = $env:SETUP_DIR.TrimEnd('\')       # project root (set by batch)
+# Use SETUP_DIR from batch env; fall back to cwd if elevated re-launch lost it.
+$SOURCE_DIR   = if ($env:SETUP_DIR) { $env:SETUP_DIR.TrimEnd('\') } else { (Get-Location).Path }       # project root (set by batch)
 $INSTALL_DIR  = "$env:LOCALAPPDATA\$APP"
 $VENV_DIR     = "$INSTALL_DIR\facelock_env"
 $PYTHON_EXE   = "$VENV_DIR\Scripts\python.exe"
@@ -353,6 +359,7 @@ function Invoke-Uninstall {
 # ─────────────────────────────────────────────────────────────────────────────
 # Main menu
 # ─────────────────────────────────────────────────────────────────────────────
+try {
 Clear-Host
 Write-Host @"
 
@@ -385,4 +392,10 @@ while ($true) {
     Blank
     Read-Host "  Press Enter to return to the menu"
     Clear-Host
+}
+} catch {
+    Write-Host "" 
+    Write-Host "  [XX] Unexpected error: $_" -ForegroundColor Red
+    Write-Host ""
+    Read-Host "  Press Enter to close"
 }
