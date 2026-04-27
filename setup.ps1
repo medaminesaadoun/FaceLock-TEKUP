@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS  FaceLock  -  Install / Uninstall
 .NOTES     Run via Setup.bat or: powershell -ExecutionPolicy Bypass -File setup.ps1
@@ -7,9 +7,9 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Constants
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 $APP          = "FaceLock"
 $SOURCE_DIR   = $PSScriptRoot   # directory containing setup.ps1 = project root
 $INSTALL_DIR  = "$env:LOCALAPPDATA\$APP"
@@ -27,14 +27,14 @@ $TASK_MODEA   = "FaceLock-ModeA"
 $EXCL_DIRS    = @("facelock_env","__pycache__",".git",".claude","logs","tests","docs")
 $EXCL_FILES   = @("facelock.db","facelock.key","settings.json","pipe.key","pids.json","*.pyc")
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Output helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 function OK($m)   { Write-Host "  [OK] $m" -ForegroundColor Green  }
 function Warn($m) { Write-Host "  [!!] $m" -ForegroundColor Yellow }
 function Err($m)  { Write-Host "  [XX] $m" -ForegroundColor Red    }
 function Info($m) { Write-Host "   ->  $m" -ForegroundColor Cyan   }
-function Hdr($m)  { Write-Host "`n━━  $m  ━━" -ForegroundColor White }
+function Hdr($m)  { Write-Host "`n==  $m  ==" -ForegroundColor White }
 function Blank    { Write-Host "" }
 
 function Ask-YN {
@@ -45,9 +45,9 @@ function Ask-YN {
     return $ans.Trim().ToLower() -in @("y","yes")
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Admin elevation
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 function Test-Admin {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     ([Security.Principal.WindowsPrincipal]$id).IsInRole(
@@ -70,9 +70,9 @@ function Elevate-IfNeeded {
     }
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Python detection
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 function Find-Python312 {
     # Refresh PATH so a freshly-installed Python is immediately visible.
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") +
@@ -120,9 +120,9 @@ function Install-Python312 {
     }
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Install
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 function Invoke-Install {
     Elevate-IfNeeded
     Hdr "FaceLock  -  Installation"
@@ -247,11 +247,11 @@ function Invoke-Install {
 
     # 8. Summary.
     Blank
-    Write-Host "  ┌───────────────────────────────────────────────────────┐" -ForegroundColor Green
-    Write-Host "  │  FaceLock installed successfully.                     │" -ForegroundColor Green
-    Write-Host "  │  Installed to: $INSTALL_DIR" -ForegroundColor Green
-    Write-Host "  │  Tasks activate automatically on next login.          │" -ForegroundColor Green
-    Write-Host "  └───────────────────────────────────────────────────────┘" -ForegroundColor Green
+    Write-Host "  +-------------------------------------------------------+" -ForegroundColor Green
+    Write-Host "  ?  FaceLock installed successfully.                     ?" -ForegroundColor Green
+    Write-Host "  ?  Installed to: $INSTALL_DIR" -ForegroundColor Green
+    Write-Host "  ?  Tasks activate automatically on next login.          ?" -ForegroundColor Green
+    Write-Host "  +-------------------------------------------------------+" -ForegroundColor Green
     Blank
 
     if (Ask-YN "Launch FaceLock now?") {
@@ -262,9 +262,9 @@ function Invoke-Install {
     }
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Uninstall
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 function Invoke-Uninstall {
     Elevate-IfNeeded
     Hdr "FaceLock  -  Uninstallation"
@@ -306,12 +306,12 @@ function Invoke-Uninstall {
 
         if ($del) {
             Blank
-            Write-Host "  ┌───────────────────────────────────────────────────┐" -ForegroundColor Red
-            Write-Host "  │  FINAL CONFIRMATION                               │" -ForegroundColor Red
-            Write-Host "  │  $INSTALL_DIR" -ForegroundColor Red
-            Write-Host "  │  will be permanently deleted.                     │" -ForegroundColor Red
-            Write-Host "  │  Your face data CANNOT be recovered.              │" -ForegroundColor Red
-            Write-Host "  └───────────────────────────────────────────────────┘" -ForegroundColor Red
+            Write-Host "  +---------------------------------------------------+" -ForegroundColor Red
+            Write-Host "  ?  FINAL CONFIRMATION                               ?" -ForegroundColor Red
+            Write-Host "  ?  $INSTALL_DIR" -ForegroundColor Red
+            Write-Host "  ?  will be permanently deleted.                     ?" -ForegroundColor Red
+            Write-Host "  ?  Your face data CANNOT be recovered.              ?" -ForegroundColor Red
+            Write-Host "  +---------------------------------------------------+" -ForegroundColor Red
             Blank
 
             if (Ask-YN "Confirm permanent deletion?" $false) {
@@ -337,19 +337,19 @@ function Invoke-Uninstall {
     OK "Uninstall complete."
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Main menu
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 try {
 Clear-Host
 Write-Host @"
 
-  ███████╗ █████╗  ██████╗███████╗██╗      ██████╗  ██████╗██╗  ██╗
-  ██╔════╝██╔══██╗██╔════╝██╔════╝██║     ██╔═══██╗██╔════╝██║ ██╔╝
-  █████╗  ███████║██║     █████╗  ██║     ██║   ██║██║     █████╔╝
-  ██╔══╝  ██╔══██║██║     ██╔══╝  ██║     ██║   ██║██║     ██╔═██╗
-  ██║     ██║  ██║╚██████╗███████╗███████╗╚██████╔╝╚██████╗██║  ██╗
-  ╚═╝     ╚═╝  ╚═╝ ╚═════╝╚══════╝╚══════╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝
+  #######+ #####+  ######+#######+##+      ######+  ######+##+  ##+
+  ##+====+##+==##+##+====+##+====+##|     ##+===##+##+====+##| ##++
+  #####+  #######|##|     #####+  ##|     ##|   ##|##|     #####++
+  ##+==+  ##+==##|##|     ##+==+  ##|     ##|   ##|##|     ##+=##+
+  ##|     ##|  ##|+######+#######+#######++######+++######+##|  ##+
+  +=+     +=+  +=+ +=====++======++======+ +=====+  +=====++=+  +=+
 
   Facial Authentication for Windows  -  Setup
 "@ -ForegroundColor Cyan
