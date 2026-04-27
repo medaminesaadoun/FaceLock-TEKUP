@@ -94,28 +94,33 @@ class EnrollmentWindow(tk.Tk):
         self._replace_id:   int | None = None
         self._replace_name: str | None = None
 
-        # Step labels differ by mode.
+        # Detect picker rows BEFORE building chrome so step count is correct
+        # and _build_chrome() is called exactly once.
+        picker_rows: list = []
+        if mode == "enroll" and has_consent(config.DB_PATH, self._username):
+            try:
+                user = get_user(config.DB_PATH, self._username)
+                if user:
+                    rows = get_embeddings(config.DB_PATH, user["id"])
+                    if len(rows) >= 2:
+                        picker_rows = rows
+            except Exception:
+                pass
+
         if mode == "add_user":
             self._step_names = ["Name", "Capture"]
+        elif picker_rows:
+            self._step_names = ["Choose Face", "Consent", "Fallback", "Capture"]
         else:
-            # Picker step added when 2+ faces are enrolled.
             self._step_names = ["Consent", "Fallback", "Capture"]
 
-        self._build_chrome()
+        self._build_chrome()  # called exactly once with the correct step count
 
         if mode == "add_user":
             self._show_name_step()
+        elif picker_rows:
+            self._show_face_picker_step(picker_rows)
         else:
-            # Show face picker before consent when multiple faces enrolled.
-            if has_consent(config.DB_PATH, self._username):
-                user = get_user(config.DB_PATH, self._username)
-                rows = get_embeddings(config.DB_PATH, user["id"]) if user else []
-                if len(rows) >= 2:
-                    self._step_names = ["Choose Face", "Consent", "Fallback", "Capture"]
-                    self._build_chrome()   # rebuild with 4 steps
-                    self._show_face_picker_step(rows)
-                    center_window(self)
-                    return
             self._show_consent_step()
 
         center_window(self)
@@ -123,13 +128,13 @@ class EnrollmentWindow(tk.Tk):
     def _build_chrome(self) -> None:
         tk.Frame(self, bg="#1a73e8", height=4).pack(fill="x")
 
-        step_row = ttk.Frame(self, padding=(20, 10, 20, 0))
-        step_row.pack(fill="x")
+        self._step_row = ttk.Frame(self, padding=(20, 10, 20, 0))
+        self._step_row.pack(fill="x")
         self._step_labels: list[ttk.Label] = []
         for i, name in enumerate(self._step_names):
             if i:
-                ttk.Label(step_row, text="──", foreground="#cccccc").pack(side="left", padx=2)
-            lbl = ttk.Label(step_row, text=f"{i + 1}. {name}")
+                ttk.Label(self._step_row, text="──", foreground="#cccccc").pack(side="left", padx=2)
+            lbl = ttk.Label(self._step_row, text=f"{i + 1}. {name}")
             lbl.pack(side="left")
             self._step_labels.append(lbl)
 
@@ -238,7 +243,17 @@ class EnrollmentWindow(tk.Tk):
         """User chose to add a new face — switch to add_user mode."""
         self._mode = "add_user"
         self._step_names = ["Name", "Capture"]
-        self._build_chrome()
+        # Rebuild only the step indicator row in-place — never call _build_chrome()
+        # again, as that would stack a second accent bar and separator on top.
+        for widget in self._step_row.winfo_children():
+            widget.destroy()
+        self._step_labels = []
+        for i, name in enumerate(self._step_names):
+            if i:
+                ttk.Label(self._step_row, text="──", foreground="#cccccc").pack(side="left", padx=2)
+            lbl = ttk.Label(self._step_row, text=f"{i + 1}. {name}")
+            lbl.pack(side="left")
+            self._step_labels.append(lbl)
         self._show_name_step()
 
     # ------------------------------------------------------------------
