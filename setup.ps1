@@ -211,21 +211,49 @@ function Invoke-Install {
     # 6. Scheduled tasks.
     Blank
     Info "Registering scheduled tasks..."
+
+    # Verify required files exist before calling schtasks.
+    Info "pythonw.exe : $PYTHONW_EXE"
+    Info "core_service: $CORE_PY"
+    Info "main.py     : $MAIN_PY"
+
+    if (-not (Test-Path $PYTHONW_EXE)) {
+        Err "pythonw.exe not found at: $PYTHONW_EXE"
+        Err "The virtual environment may not have been created correctly."
+        return
+    }
+    if (-not (Test-Path $CORE_PY)) {
+        Err "core_service.py not found at: $CORE_PY"
+        Err "The file copy step may have failed."
+        return
+    }
+
     foreach ($t in @($TASK_CORE, $TASK_MODEA)) {
         schtasks /query /tn $t 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) { schtasks /delete /f /tn $t | Out-Null }
     }
 
+    # Build the task command strings with short (8.3) paths to avoid quoting issues.
+    $pyCmd  = (cmd /c "for %I in (`"$PYTHONW_EXE`") do @echo %~sI").Trim()
+    $coreCmd = (cmd /c "for %I in (`"$CORE_PY`") do @echo %~sI").Trim()
+    $mainCmd = (cmd /c "for %I in (`"$MAIN_PY`") do @echo %~sI").Trim()
+
     schtasks /create /f /tn $TASK_CORE `
-             /tr "`"$PYTHONW_EXE`" `"$CORE_PY`"" `
+             /tr "`"$pyCmd`" `"$coreCmd`"" `
              /sc ONLOGON /ru $env:USERNAME | Out-Null
-    if ($LASTEXITCODE -ne 0) { Err "Failed to register $TASK_CORE."; return }
+    if ($LASTEXITCODE -ne 0) {
+        Err "Failed to register $TASK_CORE (schtasks exit $LASTEXITCODE)."
+        return
+    }
     OK "Registered: $TASK_CORE  (starts on logon)"
 
     schtasks /create /f /tn $TASK_MODEA `
-             /tr "`"$PYTHONW_EXE`" `"$MAIN_PY`" mode-a" `
+             /tr "`"$pyCmd`" `"$mainCmd`" mode-a" `
              /sc ONLOGON /ru $env:USERNAME /delay 0:01 | Out-Null
-    if ($LASTEXITCODE -ne 0) { Err "Failed to register $TASK_MODEA."; return }
+    if ($LASTEXITCODE -ne 0) {
+        Err "Failed to register $TASK_MODEA (schtasks exit $LASTEXITCODE)."
+        return
+    }
     OK "Registered: $TASK_MODEA  (starts 1 min after logon)"
 
     # 7. Desktop shortcut.
