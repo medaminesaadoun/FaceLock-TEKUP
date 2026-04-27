@@ -1,13 +1,4 @@
-@echo off
-:: ─────────────────────────────────────────────────────────────────────────────
-:: FaceLock Setup  -  double-click to install or uninstall.
-:: Batch bootstraps PowerShell; all setup logic is below the sentinel marker.
-:: ─────────────────────────────────────────────────────────────────────────────
-set "SETUP_SRC=%~f0"
-set "SETUP_DIR=%~dp0"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
-  "& { $src=[IO.File]::ReadAllText($env:SETUP_SRC,[Text.Encoding]::UTF8);" ^
-  "$m='##::POWERSHELL_START::##';" ^
+;" ^
   "$idx=$src.IndexOf($m);" ^
   "if($idx -lt 0){Write-Host 'Marker not found' -f Red;pause;exit 1};" ^
   "$ps=$src.Substring($idx+$m.Length+1);" ^
@@ -24,7 +15,7 @@ exit /b
 #Requires -Version 5.1
 <#
 .SYNOPSIS  FaceLock  -  Install / Uninstall
-.NOTES     Single-file setup. Source directory is passed via $env:SETUP_DIR.
+.NOTES     Run via Setup.bat or: powershell -ExecutionPolicy Bypass -File setup.ps1
 #>
 
 Set-StrictMode -Version Latest
@@ -83,8 +74,9 @@ function Elevate-IfNeeded {
         Warn "Administrator rights required for scheduled-task registration."
         Info "Re-launching as Administrator  -  choose the same option again."
         Blank
-        # Re-launch the original .bat file as admin so SETUP_DIR stays correct.
-        Start-Process cmd.exe -ArgumentList "/c `"$env:SETUP_SRC`"" -Verb RunAs
+        # Re-launch Setup.bat as admin.
+        $bat = Join-Path $PSScriptRoot 'Setup.bat'
+        Start-Process cmd.exe -ArgumentList "/c `"$bat`"" -Verb RunAs
         exit
     }
 }
