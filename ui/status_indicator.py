@@ -23,7 +23,7 @@ from modules.ipc import make_client, send, recv
 
 
 # ---------------------------------------------------------------------------
-# Low-level keyboard hook — blocks Alt+Tab and Win key at the OS level so
+# Low-level keyboard hook  -  blocks Alt+Tab and Win key at the OS level so
 # they cannot switch away from the lock overlay.  Must be installed and
 # uninstalled from the same thread that runs a Windows message loop (tkinter
 # mainloop qualifies).
@@ -39,7 +39,7 @@ _VK_BLOCK = {0x09, 0x5B, 0x5C}  # Tab, LWin, RWin
 _LRESULT = ctypes.c_ssize_t
 
 # Declare argtypes/restype on CallNextHookEx so ctypes marshals the 64-bit
-# lParam correctly — without this, Python overflows when converting a large
+# lParam correctly  -  without this, Python overflows when converting a large
 # pointer value to a plain c_int on 64-bit Windows.
 _call_next = ctypes.windll.user32.CallNextHookEx
 _call_next.restype  = _LRESULT
@@ -71,7 +71,7 @@ def _install_kb_hook():
         if nCode >= 0 and wParam in (_WM_KEYDOWN, _WM_SYSKEYDOWN):
             kb = ctypes.cast(lParam, ctypes.POINTER(_KBDLLHOOKSTRUCT)).contents
             if kb.vkCode in _VK_BLOCK:
-                return _LRESULT(1)  # swallow — do not pass to next hook
+                return _LRESULT(1)  # swallow  -  do not pass to next hook
         return _call_next(None, nCode, wParam, lParam)
 
     fn   = _HOOKPROC(_handler)
@@ -147,7 +147,7 @@ class LockOverlay:
         root.attributes("-fullscreen", True)
         root.attributes("-topmost", True)
 
-        # Remove window decorations — eliminates title bar, taskbar entry,
+        # Remove window decorations  -  eliminates title bar, taskbar entry,
         # and the WM_CLOSE message that Alt+F4 sends.
         root.overrideredirect(True)
 
@@ -159,7 +159,7 @@ class LockOverlay:
         root.protocol("WM_DELETE_WINDOW", lambda: None)
 
         # Periodically re-raise to fight off windows trying to come to the
-        # foreground. Only steal keyboard focus if no child widget has it —
+        # foreground. Only steal keyboard focus if no child widget has it  - 
         # calling focus_force() unconditionally breaks PIN entry fields.
         def _keep_on_top() -> None:
             if self._root:
@@ -170,7 +170,7 @@ class LockOverlay:
         root.after(500, _keep_on_top)
 
         if hidden_mode:
-            # Disguise as Windows lock screen — no FaceLock branding visible.
+            # Disguise as Windows lock screen  -  no FaceLock branding visible.
             # Fall back to normal mode if anything goes wrong building the UI.
             try:
                 self._build_hidden_ui(root, username, has_pin, pin_hash)
@@ -187,7 +187,7 @@ class LockOverlay:
 
             tk.Label(center, text="🔒", font=("Segoe UI", 64),
                      bg="#0d0d0d", fg="white").pack(pady=(0, 8))
-            tk.Label(center, text="FaceLock — Locked",
+            tk.Label(center, text="FaceLock  -  Locked",
                      font=("Segoe UI", 32, "bold"),
                      bg="#0d0d0d", fg="white").pack()
 
@@ -210,7 +210,7 @@ class LockOverlay:
                          bg="#0d0d0d", fg="#333333",
                          font=("Segoe UI", 9)).pack(pady=(20, 4))
 
-                # "Use PIN instead" button — hidden once clicked.
+                # "Use PIN instead" button  -  hidden once clicked.
                 use_pin_btn = tk.Button(
                     center, text="Use PIN instead",
                     font=("Segoe UI", 10), bg="#0d0d0d", fg="#666666",
@@ -219,7 +219,7 @@ class LockOverlay:
                 )
                 use_pin_btn.pack()
 
-                # PIN entry row + error label — hidden until button is clicked.
+                # PIN entry row + error label  -  hidden until button is clicked.
                 pin_frame = tk.Frame(center, bg="#0d0d0d")
                 pin_var = tk.StringVar(master=root)
                 pin_status_var = tk.StringVar(master=root, value="")
@@ -257,7 +257,7 @@ class LockOverlay:
                             pass
                         root.after(0, root.destroy)
                     else:
-                        pin_status_var.set("Incorrect PIN — try again")
+                        pin_status_var.set("Incorrect PIN  -  try again")
                         pin_var.set("")
 
                 use_pin_btn.configure(command=_show_pin_entry)
@@ -275,7 +275,7 @@ class LockOverlay:
             target=self._auth_loop, args=(username,), daemon=True).start()
 
         # Install a low-level keyboard hook to block Alt+Tab and the Win key.
-        # tkinter bindings only intercept events the app receives — shell-level
+        # tkinter bindings only intercept events the app receives  -  shell-level
         # shortcuts like Alt+Tab bypass them entirely. WH_KEYBOARD_LL intercepts
         # keystrokes before any application sees them.
         _kb_hook, _kb_fn = _install_kb_hook()
@@ -290,7 +290,7 @@ class LockOverlay:
         self._status_var = None
         self._dot_var = None
         self._bg_photo = None  # <Destroy> binding already deleted it from Tcl
-        # Force GC of the tk.Tk root in this thread — cyclic references from
+        # Force GC of the tk.Tk root in this thread  -  cyclic references from
         # tkinter callbacks can delay destruction until GC runs elsewhere.
         del root
         gc.collect()
@@ -364,7 +364,7 @@ class LockOverlay:
                 # Darken and slightly blur to match Windows lock screen look.
                 img = ImageEnhance.Brightness(img).enhance(0.45)
                 img = img.filter(ImageFilter.GaussianBlur(radius=4))
-                # Return raw PNG bytes — caller uses tk.PhotoImage(data=b64)
+                # Return raw PNG bytes  -  caller uses tk.PhotoImage(data=b64)
                 # to avoid PIL's Tk bridge and its threading issues.
                 buf = io.BytesIO()
                 img.save(buf, format="PNG", compress_level=1)
@@ -376,7 +376,7 @@ class LockOverlay:
 
     def _build_hidden_ui(self, root: tk.Tk, username: str,
                          has_pin: bool, pin_hash: str | None) -> None:
-        """Renders a Windows lock screen clone — clock, date, optional PIN entry.
+        """Renders a Windows lock screen clone  -  clock, date, optional PIN entry.
 
         Uses a Canvas so text and widgets render cleanly over the background
         image without needing transparent widget backgrounds (tkinter limitation).
@@ -385,12 +385,12 @@ class LockOverlay:
         w = root.winfo_screenwidth()
         h = root.winfo_screenheight()
 
-        # Canvas fills the entire screen — all content is drawn on it.
+        # Canvas fills the entire screen  -  all content is drawn on it.
         canvas = tk.Canvas(root, bg="#1a1a2e", highlightthickness=0)
         canvas.pack(fill="both", expand=True)
 
         # Try to use the real Windows lock screen image as background.
-        # Use tk.PhotoImage(data=b64) — not ImageTk.PhotoImage — so the image
+        # Use tk.PhotoImage(data=b64)  -  not ImageTk.PhotoImage  -  so the image
         # is bound to this thread's Tcl interpreter and avoids PIL's global
         # Tk bridge which causes Tcl_AsyncDelete crashes across threads.
         raw_png = self._load_lock_screen_image(w, h)
@@ -404,7 +404,7 @@ class LockOverlay:
             # Tcl interpreter tears down, preventing the __del__ crash.
             self._bg_photo = bg_photo
 
-        # Clock text drawn directly on canvas — no background color conflict.
+        # Clock text drawn directly on canvas  -  no background color conflict.
         cy = int(h * 0.38)
         time_id = canvas.create_text(
             w // 2, cy, text="00:00",
@@ -440,12 +440,12 @@ class LockOverlay:
         root.bind("<Destroy>", _on_destroy)
 
         if has_pin:
-            # PIN area rendered entirely on the canvas — no Frame wrapper, so
+            # PIN area rendered entirely on the canvas  -  no Frame wrapper, so
             # there's no solid background rectangle overlaid on the wallpaper.
             FIELD_W, FIELD_H = 300, 44
             PIN_Y = int(h * 0.64)
 
-            # Username as canvas text — floats on the wallpaper with no bg box.
+            # Username as canvas text  -  floats on the wallpaper with no bg box.
             uid = canvas.create_text(
                 w // 2, PIN_Y - 60, text=username,
                 font=("Segoe UI Light", 15), fill="white",
@@ -483,7 +483,7 @@ class LockOverlay:
                 w // 2 + FIELD_W // 2 - 20, PIN_Y,
                 window=eye_btn, anchor="center", state="hidden")
 
-            # Arrow submit button to the right of the field — Windows style.
+            # Arrow submit button to the right of the field  -  Windows style.
             def _check_pin() -> None:
                 entered = pin_var.get().encode()
                 if bcrypt.checkpw(entered, pin_hash.encode()):
@@ -511,7 +511,7 @@ class LockOverlay:
                 window=arrow_btn, anchor="center",
                 width=44, height=FIELD_H, state="hidden")
 
-            # Error message as canvas text — no background box.
+            # Error message as canvas text  -  no background box.
             eid = canvas.create_text(
                 w // 2, PIN_Y + FIELD_H // 2 + 18, text="",
                 font=("Segoe UI", 9), fill="#ff6666",
@@ -530,18 +530,18 @@ class LockOverlay:
                 canvas.itemconfig(eid, state="normal")
                 pin_entry.focus_set()
 
-            # Reveal on any click or keypress — mirrors Windows lock screen.
+            # Reveal on any click or keypress  -  mirrors Windows lock screen.
             canvas.bind("<Button-1>", lambda e: _reveal_pin())
             root.bind("<KeyPress>", lambda e: _reveal_pin())
             root.bind("<Return>", lambda e: _check_pin())
 
-        # Tiny indicator dot — only visible cue that face auth is running.
+        # Tiny indicator dot  -  only visible cue that face auth is running.
         canvas.create_text(
             w - 10, h - 10, text="●",
             font=("Segoe UI", 8), fill="#1a73e8", anchor="se")
 
     def _animate_dot(self) -> None:
-        # Advance the dot frame and reschedule — runs on the tkinter thread.
+        # Advance the dot frame and reschedule  -  runs on the tkinter thread.
         if self._root is None:
             return
         if self._dot_var:
@@ -570,7 +570,7 @@ class LockOverlay:
                 conn.close()
 
                 if result.get("ok"):
-                    # Auth succeeded — tell core service to clear locked state.
+                    # Auth succeeded  -  tell core service to clear locked state.
                     try:
                         c = make_client()
                         send(c, {"cmd": "unlock"})
@@ -587,11 +587,11 @@ class LockOverlay:
                         root_ref.after(0, root_ref.destroy)
                     return
 
-                # Auth timed out without a match — loop and try again.
+                # Auth timed out without a match  -  loop and try again.
                 self._set_status("Scanning... look directly at the camera")
 
             except Exception:
-                # Core service unreachable — wait before retrying.
+                # Core service unreachable  -  wait before retrying.
                 self._set_status("Connecting to service...")
                 time.sleep(2)
 
@@ -614,7 +614,7 @@ class StatusIndicator:
         self._icon = pystray.Icon(
             "FaceLock",
             _make_tray_icon("green"),
-            "FaceLock — Active",
+            "FaceLock  -  Active",
             menu=pystray.Menu(
                 pystray.MenuItem("Open Dashboard", self._open_dashboard, default=True),
                 pystray.Menu.SEPARATOR,
@@ -639,7 +639,7 @@ class StatusIndicator:
         self._locked = locked
         self._refresh_icon()
         if locked:
-            # Close the dashboard before showing the overlay — having two
+            # Close the dashboard before showing the overlay  -  having two
             # tk.Tk() instances in different threads causes Tcl_AsyncDelete.
             self._close_all_windows()
             self._overlay.show(self._username)
@@ -649,11 +649,11 @@ class StatusIndicator:
     def _close_all_windows(self) -> None:
         """Close every secondary tk.Tk window and wait for their threads.
 
-        Called before showing the overlay — having two tk.Tk interpreters
+        Called before showing the overlay  -  having two tk.Tk interpreters
         alive in different threads causes Tcl_AsyncDelete crashes.
         """
         # If the dashboard thread is alive but _dashboard_app is not yet set,
-        # wait for it — the overlay must not create its own Tcl interpreter
+        # wait for it  -  the overlay must not create its own Tcl interpreter
         # while Dashboard() is still being constructed.
         # Skip this wait when we ARE the dashboard thread to avoid deadlock.
         current = threading.current_thread()
@@ -686,11 +686,11 @@ class StatusIndicator:
 
     def _refresh_icon(self) -> None:
         if self._paused:
-            color, title = "yellow", "FaceLock — Paused"
+            color, title = "yellow", "FaceLock  -  Paused"
         elif self._locked:
-            color, title = "red", "FaceLock — Locked"
+            color, title = "red", "FaceLock  -  Locked"
         else:
-            color, title = "green", "FaceLock — Active"
+            color, title = "green", "FaceLock  -  Active"
         self._icon.icon = _make_tray_icon(color)
         self._icon.title = title
 
@@ -704,7 +704,7 @@ class StatusIndicator:
 
     def _poll_lock_state(self) -> None:
         # Polls the core service every second to sync locked/paused state.
-        # This is how the tray learns that Mode A triggered a lock — they run
+        # This is how the tray learns that Mode A triggered a lock  -  they run
         # in separate processes and communicate only through the core service.
         while True:
             try:
@@ -713,10 +713,10 @@ class StatusIndicator:
                 result = recv(conn)
                 conn.close()
 
-                # Sync locked state — triggers overlay show/hide if changed.
+                # Sync locked state  -  triggers overlay show/hide if changed.
                 self.set_locked(result.get("locked", False))
 
-                # Sync paused state — update icon if changed.
+                # Sync paused state  -  update icon if changed.
                 paused = result.get("paused", False)
                 if paused != self._paused:
                     self._paused = paused
@@ -730,7 +730,7 @@ class StatusIndicator:
     # ------------------------------------------------------------------
 
     def _open_dashboard(self, icon=None, item=None) -> None:
-        # Don't open behind the lock overlay — overlay is fullscreen topmost
+        # Don't open behind the lock overlay  -  overlay is fullscreen topmost
         # and the dashboard would create a second Tcl interpreter → crash.
         if self._locked:
             return
@@ -752,7 +752,7 @@ class StatusIndicator:
                 lambda: self._open_add_user(None, None),
                 lambda: threading.Thread(target=self._do_open_debug, daemon=True).start(),
             )
-            # Signal that the app is ready — _close_all_windows() waits for
+            # Signal that the app is ready  -  _close_all_windows() waits for
             # this before trying to call app.after(0, destroy) on the dashboard.
             self._dashboard_app = app
             self._dashboard_ready.set()
@@ -774,7 +774,7 @@ class StatusIndicator:
         self._refresh_icon()
 
     def _do_open_settings(self) -> None:
-        # Close any other open secondary window first — two tk.Tk interpreters
+        # Close any other open secondary window first  -  two tk.Tk interpreters
         # in different threads cause Tcl_AsyncDelete crashes.
         self._close_all_windows()
         from ui.settings_window import SettingsWindow
@@ -800,7 +800,7 @@ class StatusIndicator:
         self._close_all_windows()
         from modules.gdpr import has_consent
         from ui.enrollment_window import EnrollmentWindow
-        # Add User requires an existing enrollment — redirect to full enroll if not enrolled.
+        # Add User requires an existing enrollment  -  redirect to full enroll if not enrolled.
         mode = "add_user" if has_consent(config.DB_PATH, self._username) else "enroll"
         app = EnrollmentWindow(mode=mode)
         self._enroll_app = app

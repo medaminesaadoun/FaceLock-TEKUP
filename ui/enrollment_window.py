@@ -77,12 +77,12 @@ def _enroll_via_pipe(username: str, msg_cb,
 class EnrollmentWindow(tk.Tk):
     def __init__(self, mode: str = "enroll") -> None:
         """
-        mode: "enroll"    — full wizard (consent → fallback → capture), replaces existing face.
-              "add_user"  — abbreviated wizard (name → capture), appends a new face.
+        mode: "enroll"     -  full wizard (consent → fallback → capture), replaces existing face.
+              "add_user"   -  abbreviated wizard (name → capture), appends a new face.
         """
         super().__init__()
         self._mode = mode
-        self.title("FaceLock — Add User" if mode == "add_user" else "FaceLock — Enrollment")
+        self.title("FaceLock  -  Add User" if mode == "add_user" else "FaceLock  -  Enrollment")
         self.resizable(False, False)
         apply_theme(self)
         self._username = getpass.getuser()
@@ -234,16 +234,16 @@ class EnrollmentWindow(tk.Tk):
                    command=self._pick_add_new).pack(side="right")
 
     def _pick_replace(self, embedding_id: int, name: str) -> None:
-        """User chose to replace a specific face — proceed to consent."""
+        """User chose to replace a specific face  -  proceed to consent."""
         self._replace_id   = embedding_id
         self._replace_name = name or "Primary"
         self._show_consent_step()
 
     def _pick_add_new(self) -> None:
-        """User chose to add a new face — switch to add_user mode."""
+        """User chose to add a new face  -  switch to add_user mode."""
         self._mode = "add_user"
         self._step_names = ["Name", "Capture"]
-        # Rebuild only the step indicator row in-place — never call _build_chrome()
+        # Rebuild only the step indicator row in-place  -  never call _build_chrome()
         # again, as that would stack a second accent bar and separator on top.
         for widget in self._step_row.winfo_children():
             widget.destroy()
@@ -292,7 +292,7 @@ class EnrollmentWindow(tk.Tk):
                   text="Used if face authentication fails:",
                   style="Hint.TLabel").pack(anchor="w", pady=(0, 8))
 
-        # FALLBACK_NONE intentionally excluded — no fallback is too risky.
+        # FALLBACK_NONE intentionally excluded  -  no fallback is too risky.
         options = [
             (config.FALLBACK_PIN,     "PIN code"),
             (config.FALLBACK_WINDOWS, "Windows Hello / password"),
@@ -301,7 +301,7 @@ class EnrollmentWindow(tk.Tk):
             ttk.Radiobutton(self._frame_container, text=label,
                             variable=self._fallback, value=value).pack(anchor="w", pady=3)
 
-        # PIN entry + confirm + eye toggles — shown only when PIN is selected.
+        # PIN entry + confirm + eye toggles  -  shown only when PIN is selected.
         self._pin_section = ttk.Frame(self._frame_container)
         self._build_pin_fields(self._pin_section)
         self._fallback.trace_add("write", self._toggle_pin_field)
@@ -525,9 +525,9 @@ class EnrollmentWindow(tk.Tk):
         self._frame_label.set(f"{progress} / {total} frames captured")
 
         if len(boxes) == 0:
-            self._status_var.set("No face detected — look at the camera…")
+            self._status_var.set("No face detected  -  look at the camera…")
         elif len(boxes) > 1:
-            self._status_var.set("Multiple faces — ensure only you are visible")
+            self._status_var.set("Multiple faces  -  ensure only you are visible")
         else:
             self._status_var.set(_pose_prompt(progress, total))
 
@@ -542,7 +542,7 @@ class EnrollmentWindow(tk.Tk):
                     pass
             from modules.notifications import notify
             label = "added" if self._mode == "add_user" else "enrolled"
-            notify("FaceLock — Enrolled",
+            notify("FaceLock  -  Enrolled",
                    f"Face {label} successfully for {self._username}.")
             self._show_success_step()
         else:
@@ -557,7 +557,7 @@ class EnrollmentWindow(tk.Tk):
                         "additional faces. Please use Enroll first.")
                     self.destroy()
                 else:
-                    # Camera/timeout failure — let user retry capture.
+                    # Camera/timeout failure  -  let user retry capture.
                     self._show_enrolling_step()
             else:
                 # Enroll mode: erase the consent record so the next attempt

@@ -17,7 +17,7 @@ from ui._theme import apply as apply_theme, center as center_window
 
 
 # ---------------------------------------------------------------------------
-# Data helpers — all return safe defaults on any DB/IPC failure
+# Data helpers  -  all return safe defaults on any DB/IPC failure
 # ---------------------------------------------------------------------------
 
 def _last_auth_label(username: str) -> str:
@@ -242,7 +242,7 @@ class Dashboard(tk.Tk):
                  font=("Segoe UI", 11, "bold"),
                  background="#f4f4f4").pack(side="left")
 
-        # Dynamic badge — count updates in _refresh_faces().
+        # Dynamic badge  -  count updates in _refresh_faces().
         badge_color = "#1a8f1a" if enrolled else "#cc0000"
         initial_badge = f"  {self._badge_text()}"
         self._badge_var = tk.StringVar(master=self, value=initial_badge)
@@ -381,7 +381,7 @@ class Dashboard(tk.Tk):
             row = tk.Frame(self._faces_inner, bg="#f4f4f4")
             row.pack(fill="x", pady=(0, 4))
 
-            # Name — double-click to rename.
+            # Name  -  double-click to rename.
             name_lbl = tk.Label(row, text=face["name"],
                                 font=("Segoe UI", 10, "bold"),
                                 bg="#f4f4f4", fg="#222222", width=14, anchor="w")
@@ -409,7 +409,7 @@ class Dashboard(tk.Tk):
                       ).pack(side="left")
 
         if stale:
-            tk.Label(self._faces_inner, text="⚠ refresh failed — showing cached data",
+            tk.Label(self._faces_inner, text="⚠ refresh failed  -  showing cached data",
                      font=("Segoe UI", 8), fg="#aaaaaa",
                      background="#f4f4f4").pack(anchor="w", pady=(4, 0))
 
@@ -543,7 +543,7 @@ class Dashboard(tk.Tk):
                 color = "#1a8f1a"
             else:
                 self._camera_var.set(
-                    f"📷  Camera unavailable — {result.get('reason', 'unknown')}")
+                    f"📷  Camera unavailable  -  {result.get('reason', 'unknown')}")
                 color = "#cc0000"
             for w in self._status_frame.winfo_children():
                 if (isinstance(w, tk.Label) and self._camera_var
@@ -575,7 +575,7 @@ class Dashboard(tk.Tk):
             self.after(100, self._check_focus)
 
     def _check_focus(self) -> None:
-        # Do not close while a messagebox or Toplevel popup is open —
+        # Do not close while a messagebox or Toplevel popup is open  - 
         # those steal focus and would incorrectly trigger auto-close.
         if self._dialog_count > 0:
             return

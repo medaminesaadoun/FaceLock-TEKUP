@@ -1,46 +1,46 @@
-# FaceLock — Facial Authentication for Windows
+# FaceLock  -  Facial Authentication for Windows
 
-> GDPR-compliant, presence-based facial authentication that locks your workstation when you walk away and unlocks it when you return — no password, no button press.
+> GDPR-compliant, presence-based facial authentication that locks your workstation when you walk away and unlocks it when you return  -  no password, no button press.
 
 ---
 
 ## Overview
 
-FaceLock watches your webcam continuously. When it detects that the enrolled user has left, it shows a lock overlay. When the user returns and looks at the camera, it recognises them and unlocks automatically. Everything runs **100% locally** — no cloud, no external servers, no internet required after installation.
+FaceLock watches your webcam continuously. When it detects that the enrolled user has left, it shows a lock overlay. When the user returns and looks at the camera, it recognises them and unlocks automatically. Everything runs **100% locally**  -  no cloud, no external servers, no internet required after installation.
 
 ---
 
 ## Features
 
 ### Core
-- **Automatic presence monitoring** — locks after N consecutive seconds without a detected face (configurable: 3–30 s)
-- **Face authentication** — 3 consecutive frame matches required to unlock (anti-spoofing streak)
-- **Multi-user enrollment** — multiple faces can be enrolled per Windows account; any enrolled face can unlock
-- **Unlock grace period** — configurable cooldown after unlock prevents immediate re-lock
-- **Windows lock fallback** — calls `LockWorkStation()` if face auth times out (configurable: 30–300 s)
+- **Automatic presence monitoring**  -  locks after N consecutive seconds without a detected face (configurable: 3–30 s)
+- **Face authentication**  -  3 consecutive frame matches required to unlock (anti-spoofing streak)
+- **Multi-user enrollment**  -  multiple faces can be enrolled per Windows account; any enrolled face can unlock
+- **Unlock grace period**  -  configurable cooldown after unlock prevents immediate re-lock
+- **Windows lock fallback**  -  calls `LockWorkStation()` if face auth times out (configurable: 30–300 s)
 
 ### Security
-- **AES-256-GCM encryption** — face embeddings encrypted at rest with a random nonce per operation
-- **Windows DPAPI key binding** — encryption key bound to the Windows user account; unreadable on any other machine or account
-- **Bcrypt PIN hashing** — PIN fallback stored as bcrypt hash, never plaintext
-- **OS-level keyboard interception** — `WH_KEYBOARD_LL` hook blocks Alt+Tab and Win key while overlay is active
-- **Low-level overlay hardening** — `overrideredirect`, shortcut swallowing, periodic re-raise
+- **AES-256-GCM encryption**  -  face embeddings encrypted at rest with a random nonce per operation
+- **Windows DPAPI key binding**  -  encryption key bound to the Windows user account; unreadable on any other machine or account
+- **Bcrypt PIN hashing**  -  PIN fallback stored as bcrypt hash, never plaintext
+- **OS-level keyboard interception**  -  `WH_KEYBOARD_LL` hook blocks Alt+Tab and Win key while overlay is active
+- **Low-level overlay hardening**  -  `overrideredirect`, shortcut swallowing, periodic re-raise
 
 ### Privacy & GDPR
-- **Data minimisation** — only a 128-float mathematical vector is stored, never images or video
-- **Explicit consent** — GDPR notice shown before any data collection; system refuses to operate without recorded consent
-- **Right to erasure** — Settings → Delete My Data wipes all records; encryption key securely overwritten if no other users remain
-- **Audit log** — every authentication attempt logged with timestamp and result (rotating, 1 MB × 3 backups)
-- **DPIA export** — Data Protection Impact Assessment generated on demand from Settings
+- **Data minimisation**  -  only a 128-float mathematical vector is stored, never images or video
+- **Explicit consent**  -  GDPR notice shown before any data collection; system refuses to operate without recorded consent
+- **Right to erasure**  -  Settings → Delete My Data wipes all records; encryption key securely overwritten if no other users remain
+- **Audit log**  -  every authentication attempt logged with timestamp and result (rotating, 1 MB × 3 backups)
+- **DPIA export**  -  Data Protection Impact Assessment generated on demand from Settings
 
 ### UI
-- **System tray icon** — shows Active / Locked / Paused state; left-click opens dashboard
-- **Dashboard** — live status, enrolled faces list, today's auth stats, recent events, camera status, active preset
-- **Lock overlay** — standard mode (FaceLock branding + animated dots + PIN entry) or **hidden mode** (mimics Windows lock screen with real wallpaper, live clock, and PIN field)
-- **Enrollment wizard** — 3-step: consent → fallback method → live capture (30 frames, ~18 s)
-- **Settings** — Simple mode (3 presets) or Advanced mode (4 individual sliders); all changes hot-reload
-- **Debug view** — live annotated camera feed showing detection boxes, distance score, and matched face name
-- **GUI test runner** — 1280×720 interactive test runner with live camera feed and 128-d embedding visualisation
+- **System tray icon**  -  shows Active / Locked / Paused state; left-click opens dashboard
+- **Dashboard**  -  live status, enrolled faces list, today's auth stats, recent events, camera status, active preset
+- **Lock overlay**  -  standard mode (FaceLock branding + animated dots + PIN entry) or **hidden mode** (mimics Windows lock screen with real wallpaper, live clock, and PIN field)
+- **Enrollment wizard**  -  3-step: consent → fallback method → live capture (30 frames, ~18 s)
+- **Settings**  -  Simple mode (3 presets) or Advanced mode (4 individual sliders); all changes hot-reload
+- **Debug view**  -  live annotated camera feed showing detection boxes, distance score, and matched face name
+- **GUI test runner**  -  1280×720 interactive test runner with live camera feed and 128-d embedding visualisation
 
 ---
 
@@ -72,7 +72,7 @@ FaceLock runs as **three cooperating processes** communicating through a Windows
 └─────────────────────┘
 ```
 
-A **Windows Job Object** (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) ensures all child processes are killed automatically if the launcher crashes — even on `abort()`.
+A **Windows Job Object** (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) ensures all child processes are killed automatically if the launcher crashes  -  even on `abort()`.
 
 ---
 
@@ -106,7 +106,7 @@ Euclidean distance ‖stored − live‖₂ ≤ tolerance
 - Python 3.12+
 - A standard USB or built-in webcam
 - Internet connection (first install only, for pip packages)
-- Microsoft C++ Build Tools (required by `dlib`) — [download here](https://visualstudio.microsoft.com/visual-cpp-build-tools/), select **Desktop development with C++**
+- Microsoft C++ Build Tools (required by `dlib`)  -  [download here](https://visualstudio.microsoft.com/visual-cpp-build-tools/), select **Desktop development with C++**
 
 ---
 
@@ -151,9 +151,9 @@ python main.py
 
 On first launch, the enrollment wizard opens automatically:
 
-1. **Consent** — read and accept the GDPR data collection notice
-2. **Fallback method** — choose PIN (with confirm field) or Windows credentials
-3. **Capture** — look at the camera for ~18 seconds while 30 frames are captured
+1. **Consent**  -  read and accept the GDPR data collection notice
+2. **Fallback method**  -  choose PIN (with confirm field) or Windows credentials
+3. **Capture**  -  look at the camera for ~18 seconds while 30 frames are captured
 
 Once enrolled, FaceLock monitors your presence and manages the lock automatically.
 
@@ -189,7 +189,7 @@ python main.py uninstall    # remove scheduled tasks
 
 Open **Settings** from the tray or dashboard.
 
-### Simple mode — Security Presets
+### Simple mode  -  Security Presets
 
 | Preset | Lock timeout | Grace period | Auth fallback | Tolerance |
 |---|---|---|---|---|
@@ -210,7 +210,7 @@ Open **Settings** from the tray or dashboard.
 
 Enable in Settings → Lock Overlay. Requires a PIN fallback to be enrolled.
 
-When active, the lock overlay disguises itself as the Windows lock screen — showing the real system wallpaper (blurred), a live clock, and a PIN entry field. No FaceLock branding is visible.
+When active, the lock overlay disguises itself as the Windows lock screen  -  showing the real system wallpaper (blurred), a live clock, and a PIN entry field. No FaceLock branding is visible.
 
 ---
 
@@ -220,7 +220,7 @@ When active, the lock overlay disguises itself as the Windows lock screen — sh
 
 | Data | Stored | Format |
 |---|---|---|
-| Face images / video | ❌ Never | — |
+| Face images / video | ❌ Never |  -  |
 | Face embedding | ✅ Yes | 128 float64 values (AES-256-GCM encrypted) |
 | PIN fallback | ✅ Yes | bcrypt hash only |
 | Auth events | ✅ Yes | Timestamp + pass/fail (audit log) |
@@ -231,7 +231,7 @@ When active, the lock overlay disguises itself as the Windows lock screen — sh
 - **Algorithm:** AES-256-GCM (NIST SP 800-38D)
 - **Key size:** 256 bits, generated with `os.urandom(32)`
 - **Nonce:** 96-bit random, unique per encryption operation
-- **Key protection:** Windows DPAPI (`CryptProtectData`) — key is bound to the Windows user account and unreadable by other accounts or on other machines
+- **Key protection:** Windows DPAPI (`CryptProtectData`)  -  key is bound to the Windows user account and unreadable by other accounts or on other machines
 
 ### Known limitations
 
@@ -263,10 +263,10 @@ A **DPIA (Data Protection Impact Assessment)** document can be generated at any 
 ### Automated (pytest)
 
 ```bash
-# Unit tests only — no camera required
+# Unit tests only  -  no camera required
 pytest -m "not camera"
 
-# All tests — sit in front of the webcam
+# All tests  -  sit in front of the webcam
 pytest
 ```
 

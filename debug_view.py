@@ -72,12 +72,12 @@ def _draw_text(frame, text: str, pos: tuple, color=_WHITE, scale: float = 0.6) -
 
 def run() -> None:
     initialize(config.DB_PATH)
-    # Load all enrolled embeddings — one Authenticator per face.
+    # Load all enrolled embeddings  -  one Authenticator per face.
     stored_list = _load_stored_embeddings()   # [(name, embedding), ...]
     tolerance   = get_tolerance(config.SETTINGS_PATH)
     auths = [Authenticator(emb, tolerance) for _, emb in stored_list]
 
-    print("FaceLock Debug View — press Q to quit")
+    print("FaceLock Debug View  -  press Q to quit")
     print("Connecting to core service...")
 
     prev_time = time.monotonic()
@@ -119,10 +119,10 @@ def run() -> None:
                 granted  = any(results)
                 best_streak = max(a.streak for a in auths)
                 if granted:
-                    status_text  = f"AUTHENTICATED — {best_name}"
+                    status_text  = f"AUTHENTICATED  -  {best_name}"
                     status_color = _GREEN
                 elif match:
-                    status_text  = f"MATCH — {best_name}"
+                    status_text  = f"MATCH  -  {best_name}"
                     status_color = _GREEN
                 else:
                     status_text  = "NO MATCH"
@@ -148,7 +148,7 @@ def run() -> None:
                 _draw_text(frame, streak_text, (10, 100), _WHITE, 0.55)
             _draw_text(frame, status_text, (10, h_frame - 15), status_color, 0.8)
 
-            cv2.imshow("FaceLock — Debug View", frame)
+            cv2.imshow("FaceLock  -  Debug View", frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
 

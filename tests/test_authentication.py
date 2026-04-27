@@ -1,5 +1,5 @@
 # tests/test_authentication.py
-# TC2, TC3, TC4, TC7 — Authentication tests (TC2/TC3/TC7 require webcam)
+# TC2, TC3, TC4, TC7  -  Authentication tests (TC2/TC3/TC7 require webcam)
 import cv2
 import numpy as np
 import pytest
@@ -58,12 +58,12 @@ def enrolled_embedding(detector):
 
 
 # ---------------------------------------------------------------------------
-# TC2 — Successful authentication
+# TC2  -  Successful authentication
 # ---------------------------------------------------------------------------
 
 @pytest.mark.camera
 def test_tc2_auth_passes_on_consecutive_matches(detector, enrolled_embedding):
-    """TC2 — Authenticator grants access after CONSECUTIVE_FRAMES_REQUIRED matches."""
+    """TC2  -  Authenticator grants access after CONSECUTIVE_FRAMES_REQUIRED matches."""
     auth = Authenticator(enrolled_embedding)
     granted = False
     frames = _capture_frames(config.CONSECUTIVE_FRAMES_REQUIRED + 5)
@@ -78,16 +78,16 @@ def test_tc2_auth_passes_on_consecutive_matches(detector, enrolled_embedding):
         if auth.feed(emb):
             granted = True
             break
-    assert granted, "Auth did not pass — ensure your face is clearly visible"
+    assert granted, "Auth did not pass  -  ensure your face is clearly visible"
 
 
 # ---------------------------------------------------------------------------
-# TC3 — Streak resets when face disappears
+# TC3  -  Streak resets when face disappears
 # ---------------------------------------------------------------------------
 
 @pytest.mark.camera
 def test_tc3_streak_resets_on_no_face(enrolled_embedding):
-    """TC3 — Streak counter resets to 0 when find_faces returns no boxes."""
+    """TC3  -  Streak counter resets to 0 when find_faces returns no boxes."""
     detector = FaceDetector(config.TFLITE_MODEL_PATH)
     auth = Authenticator(enrolled_embedding)
 
@@ -100,7 +100,7 @@ def test_tc3_streak_resets_on_no_face(enrolled_embedding):
                 auth.feed(emb)
 
     streak_before = auth.streak
-    assert streak_before > 0, "Could not build a partial streak — check camera"
+    assert streak_before > 0, "Could not build a partial streak  -  check camera"
 
     blank = np.zeros((480, 640, 3), dtype=np.uint8)
     assert detector.find_faces(blank) == [], "Blank frame should yield no detections"
@@ -109,11 +109,11 @@ def test_tc3_streak_resets_on_no_face(enrolled_embedding):
 
 
 # ---------------------------------------------------------------------------
-# TC4 — Wrong face does not authenticate (no webcam needed)
+# TC4  -  Wrong face does not authenticate (no webcam needed)
 # ---------------------------------------------------------------------------
 
 def test_tc4_wrong_embedding_does_not_auth():
-    """TC4 — Random embedding does not match enrolled embedding."""
+    """TC4  -  Random embedding does not match enrolled embedding."""
     enrolled = np.random.rand(128).astype(np.float64)
     impostor = np.random.rand(128).astype(np.float64)
     while np.linalg.norm(enrolled - impostor) <= config.DEFAULT_TOLERANCE:
@@ -126,12 +126,12 @@ def test_tc4_wrong_embedding_does_not_auth():
 
 
 # ---------------------------------------------------------------------------
-# TC7 — Enrolled embedding persists through bytes serialization
+# TC7  -  Enrolled embedding persists through bytes serialization
 # ---------------------------------------------------------------------------
 
 @pytest.mark.camera
 def test_tc7_auth_works_after_serialization_roundtrip(enrolled_embedding, detector):
-    """TC7 — Auth succeeds when stored embedding is serialized then restored."""
+    """TC7  -  Auth succeeds when stored embedding is serialized then restored."""
     restored = bytes_to_embedding(embedding_to_bytes(enrolled_embedding))
     auth = Authenticator(restored)
     granted = False

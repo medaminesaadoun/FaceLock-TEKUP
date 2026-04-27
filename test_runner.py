@@ -70,7 +70,7 @@ ALL_TESTS: list[TC] = [
 class TestRunner(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("FaceLock — Test Runner")
+        self.title("FaceLock  -  Test Runner")
         self.geometry(f"{WIN_W}x{WIN_H}")
         self.resizable(False, False)
         self.configure(bg="#111122")
@@ -101,7 +101,7 @@ class TestRunner(tk.Tk):
         # ---- Header ----
         header = tk.Frame(self, bg="#111122", padx=20, pady=10)
         header.pack(fill="x")
-        tk.Label(header, text="FaceLock — Test Runner",
+        tk.Label(header, text="FaceLock  -  Test Runner",
                  font=("Segoe UI", 15, "bold"),
                  bg="#111122", fg="white").pack(side="left")
         tk.Label(header,
@@ -113,7 +113,7 @@ class TestRunner(tk.Tk):
         body = tk.Frame(self, bg="#111122")
         body.pack(fill="both", expand=True, padx=20, pady=(0, 16))
 
-        # Left column — camera + status
+        # Left column  -  camera + status
         left = tk.Frame(body, bg="#111122")
         left.pack(side="left", fill="y", anchor="n", padx=(0, 20))
 
@@ -123,7 +123,7 @@ class TestRunner(tk.Tk):
         self._canvas.pack()
 
         self._status_var = tk.StringVar(
-            master=self, value="Ready — select tests and press a Run button")
+            master=self, value="Ready  -  select tests and press a Run button")
         tk.Label(left, textvariable=self._status_var,
                  font=("Segoe UI", 10), bg="#111122", fg="#aaaaaa",
                  wraplength=PREVIEW_W, justify="center").pack(pady=(8, 4))
@@ -132,7 +132,7 @@ class TestRunner(tk.Tk):
         ttk.Progressbar(left, variable=self._prog_var, maximum=100,
                         length=PREVIEW_W, mode="determinate").pack()
 
-        # Right column — test list + buttons
+        # Right column  -  test list + buttons
         right = tk.Frame(body, bg="#111122")
         right.pack(side="left", fill="both", expand=True, anchor="n")
 
@@ -192,7 +192,7 @@ class TestRunner(tk.Tk):
             row = tk.Frame(right, bg="#1a1a2e", pady=0)
             row.pack(fill="x", pady=(0, 2))
 
-            # Custom toggle — a clickable label showing ☑/☐.
+            # Custom toggle  -  a clickable label showing ☑/☐.
             # Native tk.Checkbutton / ttk.Checkbutton both have rendering
             # issues on Windows dark backgrounds, so we manage state manually.
             var = tk.BooleanVar(master=self, value=True)
@@ -228,7 +228,7 @@ class TestRunner(tk.Tk):
             name_lbl.pack(side="left", padx=(4, 0), fill="x", expand=True)
 
             # Result label (right-aligned).
-            result_lbl = tk.Label(row, text="—", anchor="e", width=32,
+            result_lbl = tk.Label(row, text=" - ", anchor="e", width=32,
                                   font=("Segoe UI", 9), bg="#1a1a2e",
                                   fg="#555566")
             result_lbl.pack(side="right", padx=(0, 10))
@@ -346,7 +346,7 @@ class TestRunner(tk.Tk):
         row["tc"].status = status
         dot_c, _ = _COLORS.get(status, _COLORS["pending"])
         symbols = {"pending": "●", "running": "▶", "pass": "✓",
-                   "fail": "✗", "skip": "—"}
+                   "fail": "✗", "skip": " - "}
         symbol = symbols.get(status, "●")
         name_c = {
             "pending": "#888899", "running": "white",
@@ -356,7 +356,7 @@ class TestRunner(tk.Tk):
         def _apply(r=row, dc=dot_c, nc=name_c, sym=symbol, m=msg):
             r["dot"].configure(text=sym, fg=dc)
             r["name"].configure(fg=nc)
-            r["result"].configure(text=m if m else "—",
+            r["result"].configure(text=m if m else " - ",
                                   fg=dc if m else "#555566")
         self._ui(_apply)
 
@@ -465,7 +465,7 @@ class TestRunner(tk.Tk):
                     if boxes:
                         return small, boxes
                 time.sleep(0.05)
-            raise AssertionError("No face detected after 10 s — check camera")
+            raise AssertionError("No face detected after 10 s  -  check camera")
 
         # ---- TC5 ----
         self._set_status("TC5: Look at the camera…")
@@ -548,7 +548,7 @@ class TestRunner(tk.Tk):
             _skip("Enrl", "not selected"); tick()
         else:
             self._set_tc("Enrl", "running")
-            self._set_status("Enrollment: hold still — capturing 30 frames…")
+            self._set_status("Enrollment: hold still  -  capturing 30 frames…")
             embeddings: list[np.ndarray] = []
             last_cap = 0.0
             dl = time.monotonic() + 90
@@ -613,7 +613,7 @@ class TestRunner(tk.Tk):
                         dist = float(np.linalg.norm(self._enrolled - emb))
                         self._set_status(f"TC2: distance {dist:.3f}")
                         if auth.feed(emb):
-                            return f"Authenticated — distance {dist:.3f}"
+                            return f"Authenticated  -  distance {dist:.3f}"
                 else:
                     auth.reset()
                 time.sleep(0.1)
@@ -684,7 +684,7 @@ class TestRunner(tk.Tk):
         skipped = results.count("skip")
         summary = f"{passed} passed  {failed} failed  {skipped} skipped"
         self._set_status(("Done" if failed == 0 else "Finished with failures")
-                         + f" — {summary}")
+                         + f"  -  {summary}")
         self._ui(lambda s=summary: self._summary_var.set(s))
         self._set_btns(True)
 

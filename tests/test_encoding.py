@@ -108,7 +108,7 @@ def test_update_last_used_sets_timestamp():
 
 
 # ---------------------------------------------------------------------------
-# Live camera tests — TC1, TC6, TC8 (require webcam + person in frame)
+# Live camera tests  -  TC1, TC6, TC8 (require webcam + person in frame)
 # ---------------------------------------------------------------------------
 
 import cv2
@@ -128,7 +128,7 @@ def _capture_embedding() -> np.ndarray:
     cap.release()
     assert ret, "Could not read frame from webcam"
     assert detector.has_exactly_one_face(frame), \
-        "Exactly one face required — ensure only you are in frame"
+        "Exactly one face required  -  ensure only you are in frame"
     boxes = detector.find_faces(frame)
     emb = extract_embedding(frame, boxes[0])
     assert emb is not None, "Embedding extraction failed"
@@ -137,14 +137,14 @@ def _capture_embedding() -> np.ndarray:
 
 @pytest.mark.camera
 def test_tc1_embedding_is_128d():
-    """TC1 — Extracted face embedding is 128-dimensional."""
+    """TC1  -  Extracted face embedding is 128-dimensional."""
     emb = _capture_embedding()
     assert emb.shape == (128,), f"Expected (128,), got {emb.shape}"
 
 
 @pytest.mark.camera
 def test_tc6_embedding_serialization_roundtrip():
-    """TC6 — Embedding survives bytes serialization roundtrip."""
+    """TC6  -  Embedding survives bytes serialization roundtrip."""
     emb = _capture_embedding()
     restored = bytes_to_embedding(embedding_to_bytes(emb))
     assert np.allclose(emb, restored), "Roundtrip mismatch"
@@ -152,8 +152,8 @@ def test_tc6_embedding_serialization_roundtrip():
 
 @pytest.mark.camera
 def test_tc8_same_face_matches_within_tolerance():
-    """TC8 — Two embeddings captured seconds apart from the same face match."""
+    """TC8  -  Two embeddings captured seconds apart from the same face match."""
     emb1 = _capture_embedding()
     emb2 = _capture_embedding()
     assert compare_embedding(emb1, emb2, config.DEFAULT_TOLERANCE), \
-        "Same face did not match — check lighting or camera position"
+        "Same face did not match  -  check lighting or camera position"

@@ -52,7 +52,7 @@ def has_consent(db_path: str, username: str) -> bool:
 
 def erase_user_data(db_path: str, key_path: str, username: str) -> None:
     erase_user(db_path, username)
-    # Only destroy the shared key when no enrolled users remain — wiping it
+    # Only destroy the shared key when no enrolled users remain  -  wiping it
     # earlier would permanently lock out other users on this device.
     with get_connection(db_path) as conn:
         remaining = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -84,8 +84,8 @@ App Version: {config.APP_VERSION}
 
 ## 4. Protection Measures (GDPR Art. 5(1)(f), Art. 32)
 - Encryption: AES-256-GCM (ISO 27001)
-- Key storage: Windows DPAPI — bound to this Windows user account
-- Transmission: None — 100% local processing (ISO 27018)
+- Key storage: Windows DPAPI  -  bound to this Windows user account
+- Transmission: None  -  100% local processing (ISO 27018)
 
 ## 5. Risk Assessment
 - Unauthorised access: Mitigated by DPAPI binding + AES-256-GCM

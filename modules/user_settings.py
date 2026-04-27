@@ -2,7 +2,7 @@
 import json
 import os
 
-# Preset profiles — shared by settings_window and dashboard.
+# Preset profiles  -  shared by settings_window and dashboard.
 PRESETS: dict[str, dict] = {
     "Max Security": {
         "tolerance": 0.40,

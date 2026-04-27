@@ -36,7 +36,7 @@ def _presence() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Mode A — Session locker: lock when user leaves, unlock when face matches
+# Mode A  -  Session locker: lock when user leaves, unlock when face matches
 # ---------------------------------------------------------------------------
 
 def _lock_workstation() -> None:
@@ -72,21 +72,21 @@ def run_mode_a(poll_interval: float = 1.0) -> None:
             time.sleep(poll_interval)
             continue
 
-        # Poll the core service for current lock state — the overlay may have
+        # Poll the core service for current lock state  -  the overlay may have
         # already unlocked it via face auth.
         status = _request({"cmd": "status"})
         locked = status.get("locked", False)
 
         if not locked:
             if prev_locked:
-                # Unlock transition detected — start grace period so the user
+                # Unlock transition detected  -  start grace period so the user
                 # isn't immediately re-locked before settling back at their desk.
                 grace_until = time.monotonic() + unlock_grace
                 lock_time = None
                 absence_streak = 0
 
             if grace_until and time.monotonic() < grace_until:
-                # Grace period active — skip presence monitoring.
+                # Grace period active  -  skip presence monitoring.
                 pass
             else:
                 grace_until = None
@@ -97,9 +97,9 @@ def run_mode_a(poll_interval: float = 1.0) -> None:
                     absence_streak += 1
                     if absence_streak >= lock_timeout:
                         from modules.notifications import notify
-                        notify("FaceLock — Locked",
+                        notify("FaceLock  -  Locked",
                                "No face detected. Look at the camera to unlock.")
-                        # Signal core service to lock — tray will show overlay.
+                        # Signal core service to lock  -  tray will show overlay.
                         _request({"cmd": "lock"})
                         lock_time = time.monotonic()
                         absence_streak = 0
@@ -116,7 +116,7 @@ def run_mode_a(poll_interval: float = 1.0) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Mode B — App guard: authenticate before launching a wrapped application
+# Mode B  -  App guard: authenticate before launching a wrapped application
 # ---------------------------------------------------------------------------
 
 def run_mode_b(app_cmd: list[str]) -> bool:
@@ -129,7 +129,7 @@ def run_mode_b(app_cmd: list[str]) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Mode C1 — Post-login startup gate: block until auth succeeds
+# Mode C1  -  Post-login startup gate: block until auth succeeds
 # ---------------------------------------------------------------------------
 
 def run_mode_c1() -> None:

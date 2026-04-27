@@ -1,6 +1,6 @@
 @echo off
 :: ─────────────────────────────────────────────────────────────────────────────
-:: FaceLock Setup — double-click to install or uninstall.
+:: FaceLock Setup  -  double-click to install or uninstall.
 :: Batch bootstraps PowerShell; all setup logic is below the sentinel marker.
 :: ─────────────────────────────────────────────────────────────────────────────
 set "SETUP_SRC=%~f0"
@@ -18,7 +18,7 @@ exit /b
 ##::POWERSHELL_START::##
 #Requires -Version 5.1
 <#
-.SYNOPSIS  FaceLock — Install / Uninstall
+.SYNOPSIS  FaceLock  -  Install / Uninstall
 .NOTES     Single-file setup. Source directory is passed via $env:SETUP_DIR.
 #>
 
@@ -41,7 +41,7 @@ $SHORTCUT     = [IO.Path]::Combine($env:USERPROFILE, "Desktop", "$APP.lnk")
 $TASK_CORE    = "FaceLock-CoreService"
 $TASK_MODEA   = "FaceLock-ModeA"
 
-# Robocopy exclusions — keeps data\face_detector.tflite, excludes user data.
+# Robocopy exclusions  -  keeps data\face_detector.tflite, excludes user data.
 $EXCL_DIRS    = @("facelock_env","__pycache__",".git",".claude","logs","tests","docs")
 $EXCL_FILES   = @("facelock.db","facelock.key","settings.json","pipe.key","pids.json","*.pyc")
 
@@ -75,7 +75,7 @@ function Test-Admin {
 function Elevate-IfNeeded {
     if (-not (Test-Admin)) {
         Warn "Administrator rights required for scheduled-task registration."
-        Info "Re-launching as Administrator — choose the same option again."
+        Info "Re-launching as Administrator  -  choose the same option again."
         Blank
         # Re-launch the original .bat file as admin so SETUP_DIR stays correct.
         Start-Process cmd.exe -ArgumentList "/c `"$env:SETUP_SRC`"" -Verb RunAs
@@ -138,7 +138,7 @@ function Install-Python312 {
 # ─────────────────────────────────────────────────────────────────────────────
 function Invoke-Install {
     Elevate-IfNeeded
-    Hdr "FaceLock — Installation"
+    Hdr "FaceLock  -  Installation"
 
     # 1. Verify source directory contains the project.
     if (-not (Test-Path "$SOURCE_DIR\main.py")) {
@@ -199,7 +199,7 @@ function Invoke-Install {
 
         # 5. pip install.
         Blank
-        Info "Installing Python packages — this may take several minutes..."
+        Info "Installing Python packages  -  this may take several minutes..."
         Warn "dlib and face_recognition require a C++ compiler."
         & $PYTHON_EXE -m pip install --upgrade pip --quiet
         & $PYTHON_EXE -m pip install -r $REQ_TXT
@@ -218,7 +218,7 @@ function Invoke-Install {
             OK "Python packages installed."
         }
     } else {
-        Warn "Keeping existing venv — skipping pip install."
+        Warn "Keeping existing venv  -  skipping pip install."
     }
 
     # 6. Scheduled tasks.
@@ -250,7 +250,7 @@ function Invoke-Install {
         $sc.TargetPath       = $PYTHONW_EXE
         $sc.Arguments        = "`"$MAIN_PY`""
         $sc.WorkingDirectory = $INSTALL_DIR
-        $sc.Description      = "FaceLock — Facial Authentication"
+        $sc.Description      = "FaceLock  -  Facial Authentication"
         $sc.WindowStyle      = 1
         $sc.Save()
         OK "Shortcut: $SHORTCUT"
@@ -280,7 +280,7 @@ function Invoke-Install {
 # ─────────────────────────────────────────────────────────────────────────────
 function Invoke-Uninstall {
     Elevate-IfNeeded
-    Hdr "FaceLock — Uninstallation"
+    Hdr "FaceLock  -  Uninstallation"
     Blank
     Warn "This will remove scheduled tasks and the Desktop shortcut."
 
@@ -337,13 +337,13 @@ function Invoke-Uninstall {
                     OK "Deleted."
                 }
             } else {
-                Info "Deletion cancelled — files kept."
+                Info "Deletion cancelled  -  files kept."
             }
         } else {
             Info "Files kept at $INSTALL_DIR"
         }
     } else {
-        Info "Installation folder not found — nothing to delete."
+        Info "Installation folder not found  -  nothing to delete."
     }
 
     Blank
@@ -363,7 +363,7 @@ Write-Host @"
   ██║     ██║  ██║╚██████╗███████╗███████╗╚██████╔╝╚██████╗██║  ██╗
   ╚═╝     ╚═╝  ╚═╝ ╚═════╝╚══════╝╚══════╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝
 
-  Facial Authentication for Windows — Setup
+  Facial Authentication for Windows  -  Setup
 "@ -ForegroundColor Cyan
 
 while ($true) {

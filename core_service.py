@@ -24,13 +24,13 @@ from modules.user_settings import get_tolerance
 
 log = setup_audit_logger(config.LOG_PATH)
 
-# Serialises all camera access — only one operation may hold the camera at a time.
+# Serialises all camera access  -  only one operation may hold the camera at a time.
 _camera_lock = threading.Lock()
 
 _paused = False
 _paused_lock = threading.Lock()
 
-# Tracks whether the overlay lock is active — set by Mode A via IPC,
+# Tracks whether the overlay lock is active  -  set by Mode A via IPC,
 # read by the tray polling thread to show/hide the lock overlay.
 _locked = False
 _locked_lock = threading.Lock()
@@ -62,12 +62,12 @@ def _load_stored_embeddings(username: str) -> list[np.ndarray]:
 
 
 def _handle_auth(username: str, detector: FaceDetector) -> dict:
-    # When paused, skip authentication entirely — treat as cancelled.
+    # When paused, skip authentication entirely  -  treat as cancelled.
     with _paused_lock:
         if _paused:
             return {"ok": False, "reason": "paused"}
 
-    # Load all enrolled embeddings — one Authenticator per face.
+    # Load all enrolled embeddings  -  one Authenticator per face.
     embeddings = _load_stored_embeddings(username)
     if not embeddings:
         return {"ok": False, "reason": "not_enrolled"}
@@ -203,14 +203,14 @@ def _handle_presence(detector: FaceDetector) -> dict:
                     small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
                     present = detector.has_exactly_one_face(small)
                 else:
-                    # Frame read failed — fail safe: assume user is present
+                    # Frame read failed  -  fail safe: assume user is present
                     # to avoid spurious locks from a momentary camera glitch.
                     present = True
                 return {"present": present}
             finally:
                 cap.release()
         except Exception:
-            # Camera unavailable (busy, driver issue, etc.) — assume present
+            # Camera unavailable (busy, driver issue, etc.)  -  assume present
             # so Mode A does not lock the user out due to a hardware error.
             return {"present": True}
 
@@ -230,7 +230,7 @@ def _handle_resume() -> dict:
 
 
 def _handle_lock() -> dict:
-    # Called by Mode A when absence is detected — signals tray to show overlay.
+    # Called by Mode A when absence is detected  -  signals tray to show overlay.
     global _locked
     with _locked_lock:
         _locked = True

@@ -147,7 +147,7 @@ def cmd_launch(_args) -> None:
     here = _here()
     _detached = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
 
-    # Core service must start first — enrollment window needs it for camera access.
+    # Core service must start first  -  enrollment window needs it for camera access.
     core_proc = subprocess.Popen(
         [pythonw, str(here / "core_service.py")], creationflags=_detached
     )
@@ -160,7 +160,7 @@ def cmd_launch(_args) -> None:
             core_proc.terminate()
             return
 
-    # Consent confirmed — start Mode A and save PIDs.
+    # Consent confirmed  -  start Mode A and save PIDs.
     mode_a_proc = subprocess.Popen(
         [pythonw, str(here / "main.py"), "mode-a"], creationflags=_detached
     )
@@ -179,20 +179,20 @@ def cmd_launch(_args) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="facelock", description="FaceLock — GDPR-compliant facial authentication")
+    parser = argparse.ArgumentParser(prog="facelock", description="FaceLock  -  GDPR-compliant facial authentication")
     sub = parser.add_subparsers(dest="command", required=False)
 
     sub.add_parser("service",   help="Start the core service (pipe server + camera)")
     sub.add_parser("enroll",    help="Open the enrollment wizard")
     sub.add_parser("tray",      help="Start the system tray status indicator")
-    sub.add_parser("mode-a",    help="Mode A — session locker")
-    sub.add_parser("mode-c1",   help="Mode C1 — post-login startup gate")
+    sub.add_parser("mode-a",    help="Mode A  -  session locker")
+    sub.add_parser("mode-c1",   help="Mode C1  -  post-login startup gate")
     sub.add_parser("debug",        help="Live camera debug view with detection overlay")
     sub.add_parser("test-runner",  help="Interactive GUI test runner with live camera feed")
     sub.add_parser("install",   help="Install Windows Task Scheduler tasks")
     sub.add_parser("uninstall", help="Remove Windows Task Scheduler tasks")
 
-    b = sub.add_parser("mode-b", help="Mode B — app guard")
+    b = sub.add_parser("mode-b", help="Mode B  -  app guard")
     b.add_argument("app", nargs="*", help="Command to launch after auth")
 
     args = parser.parse_args()

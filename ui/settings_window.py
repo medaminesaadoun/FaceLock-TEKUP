@@ -38,7 +38,7 @@ def _detect_preset(settings: dict) -> str:
 class SettingsWindow(tk.Tk):
     def __init__(self, on_re_enroll=None) -> None:
         super().__init__()
-        self.title("FaceLock — Settings")
+        self.title("FaceLock  -  Settings")
         self.resizable(False, False)
         apply_theme(self)
         self._username = getpass.getuser()
@@ -82,7 +82,7 @@ class SettingsWindow(tk.Tk):
         # ---- Sensitivity & Locking ----
         self._section(outer, "Sensitivity & Locking")
 
-        # Mode toggle — Simple shows preset picker, Advanced shows sliders.
+        # Mode toggle  -  Simple shows preset picker, Advanced shows sliders.
         mode_row = ttk.Frame(outer)
         mode_row.pack(anchor="w", pady=(0, 10))
         self._mode_var = tk.StringVar(
@@ -98,7 +98,7 @@ class SettingsWindow(tk.Tk):
             command=self._on_mode_change,
         ).pack(side="left")
 
-        # Fixed container — always occupies the same slot in outer so that
+        # Fixed container  -  always occupies the same slot in outer so that
         # pack_forget/pack inside it doesn't scramble the surrounding sections.
         self._mode_container = ttk.Frame(outer)
         self._mode_container.pack(fill="x", pady=(0, 8))
@@ -115,7 +115,7 @@ class SettingsWindow(tk.Tk):
         # ---- Lock Overlay ----
         self._section(outer, "Lock Overlay")
 
-        # Hidden mode requires a PIN fallback — without it the user has no way
+        # Hidden mode requires a PIN fallback  -  without it the user has no way
         # to interact with the disguised overlay if face auth fails.
         user = get_user(config.DB_PATH, self._username)
         has_pin = (
@@ -130,7 +130,7 @@ class SettingsWindow(tk.Tk):
             master=self, value=self._settings.get("hidden_mode", False))
         cb = ttk.Checkbutton(
             outer,
-            text="Hidden mode — disguise overlay as Windows lock screen",
+            text="Hidden mode  -  disguise overlay as Windows lock screen",
             variable=self._hidden_mode_var,
         )
         cb.pack(anchor="w")
@@ -138,7 +138,7 @@ class SettingsWindow(tk.Tk):
             cb.configure(state="disabled")
             ttk.Label(
                 outer,
-                text="Requires PIN fallback — re-enroll with PIN to enable",
+                text="Requires PIN fallback  -  re-enroll with PIN to enable",
                 style="Hint.TLabel",
             ).pack(anchor="w", pady=(2, 8))
         else:
@@ -174,7 +174,7 @@ class SettingsWindow(tk.Tk):
                 row, text=name, variable=self._preset_var, value=name,
                 command=lambda n=name: self._select_preset(n),
             ).pack(side="left")
-            ttk.Label(row, text=f"  —  {hint}",
+            ttk.Label(row, text=f"   -   {hint}",
                       style="Hint.TLabel").pack(side="left")
 
         # Placeholder when no preset matches (custom advanced values).
@@ -297,16 +297,16 @@ class SettingsWindow(tk.Tk):
             self._tol_display.set(f"{v:.2f}")
             if hasattr(self, "_tol_warn_var") and self._tol_warn_var:
                 if v < 0.4:
-                    self._tol_warn_var.set("⚠  Below 0.40 — may reject the enrolled user")
+                    self._tol_warn_var.set("⚠  Below 0.40  -  may reject the enrolled user")
                 elif v > 0.6:
-                    self._tol_warn_var.set("⚠  Above 0.60 — may accept an unrelated face")
+                    self._tol_warn_var.set("⚠  Above 0.60  -  may accept an unrelated face")
                 else:
                     self._tol_warn_var.set("")
 
     # ------------------------------------------------------------------
 
     def destroy(self) -> None:
-        # Remove Tcl traces before teardown — unremoved traces cause
+        # Remove Tcl traces before teardown  -  unremoved traces cause
         # Tcl_AsyncDelete when the interpreter is in a daemon thread.
         for _, var, _disp, tid in self._slider_vars:
             try:
@@ -332,7 +332,7 @@ class SettingsWindow(tk.Tk):
             for key, var, _d, _t in self._slider_vars:
                 self._settings[key] = int(var.get())
         # In simple mode the preset was already written to self._settings
-        # when the user clicked it — nothing extra to do here.
+        # when the user clicked it  -  nothing extra to do here.
 
         self._settings["hidden_mode"] = bool(self._hidden_mode_var.get())
         save_settings(config.SETTINGS_PATH, self._settings)
@@ -343,7 +343,7 @@ class SettingsWindow(tk.Tk):
     def _re_enroll(self) -> None:
         if self._on_re_enroll:
             # Use the StatusIndicator callback so enrollment goes through the
-            # tracked _open_enrollment path — avoids untracked tk.Tk threads.
+            # tracked _open_enrollment path  -  avoids untracked tk.Tk threads.
             self.destroy()
             self._on_re_enroll()
         else:

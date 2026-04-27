@@ -9,7 +9,7 @@ def generate_key() -> bytes:
 
 
 def _protect(key: bytes) -> bytes:
-    # DPAPI binds this key to the current Windows user account — only that user can unprotect it
+    # DPAPI binds this key to the current Windows user account  -  only that user can unprotect it
     return win32crypt.CryptProtectData(key, None, None, None, None, 0)
 
 
