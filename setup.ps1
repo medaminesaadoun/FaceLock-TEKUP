@@ -1,17 +1,3 @@
-;" ^
-  "$idx=$src.IndexOf($m);" ^
-  "if($idx -lt 0){Write-Host 'Marker not found' -f Red;pause;exit 1};" ^
-  "$ps=$src.Substring($idx+$m.Length+1);" ^
-  "$t=[IO.Path]::GetTempFileName()+'.ps1';" ^
-  "[IO.File]::WriteAllText($t,$ps,[Text.Encoding]::UTF8);" ^
-  "try{& $t}finally{Remove-Item $t -EA 0} }"
-if %errorlevel% neq 0 (
-    echo.
-    echo  [!!] Setup failed. See the errors above.
-    pause
-)
-exit /b
-##::POWERSHELL_START::##
 #Requires -Version 5.1
 <#
 .SYNOPSIS  FaceLock  -  Install / Uninstall
@@ -25,8 +11,7 @@ $ErrorActionPreference = "Stop"
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
 $APP          = "FaceLock"
-# Use SETUP_DIR from batch env; fall back to cwd if elevated re-launch lost it.
-$SOURCE_DIR   = if ($env:SETUP_DIR) { $env:SETUP_DIR.TrimEnd('\') } else { (Get-Location).Path }       # project root (set by batch)
+$SOURCE_DIR   = $PSScriptRoot   # directory containing setup.ps1 = project root
 $INSTALL_DIR  = "$env:LOCALAPPDATA\$APP"
 $VENV_DIR     = "$INSTALL_DIR\facelock_env"
 $PYTHON_EXE   = "$VENV_DIR\Scripts\python.exe"
@@ -74,9 +59,13 @@ function Elevate-IfNeeded {
         Warn "Administrator rights required for scheduled-task registration."
         Info "Re-launching as Administrator  -  choose the same option again."
         Blank
-        # Re-launch Setup.bat as admin.
+        # Re-launch via Setup.bat as admin.
         $bat = Join-Path $PSScriptRoot 'Setup.bat'
-        Start-Process cmd.exe -ArgumentList "/c `"$bat`"" -Verb RunAs
+        if (Test-Path $bat) {
+            Start-Process cmd.exe -ArgumentList "/c `"$bat`"" -Verb RunAs
+        } else {
+            Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+        }
         exit
     }
 }
