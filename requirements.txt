@@ -1,3 +1,4 @@
+setuptools<81
 opencv-python
 mediapipe
 face_recognition
@@ -6,4 +7,5 @@ cryptography
 pywin32
 bcrypt
 pillow
-pystraywinotify
+pystray
+winotify
