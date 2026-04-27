@@ -190,6 +190,7 @@ class Dashboard(tk.Tk):
         self._faces_frame: tk.Frame | None = None
         self._faces_cache: list[dict] = []
         self._face_count_var: tk.StringVar | None = None
+        self._dialog_open = False  # suppress focus-out auto-close
 
         self._build()
         center_window(self)
@@ -499,11 +500,16 @@ class Dashboard(tk.Tk):
 
     def _delete_face(self, face_id: int, face_name: str) -> None:
         from tkinter import messagebox
-        if not messagebox.askyesno(
-            "Delete Face",
-            f'Remove "{face_name}" from enrolled faces?\n\n'
-            "This face will no longer be able to unlock.\nThis cannot be undone.",
-        ):
+        self._dialog_open = True
+        try:
+            confirmed = messagebox.askyesno(
+                "Delete Face",
+                f'Remove "{face_name}" from enrolled faces?\n\n'
+                "This face will no longer be able to unlock.\nThis cannot be undone.",
+            )
+        finally:
+            self._dialog_open = False
+        if not confirmed:
             return
         try:
             conn = make_client()
@@ -520,6 +526,13 @@ class Dashboard(tk.Tk):
             messagebox.showerror("Error", f"Could not delete face: {exc}")
 
     def _rename_face(self, face_id: int, current_name: str) -> None:
+        self._dialog_open = True
+        try:
+            self._do_rename_face(face_id, current_name)
+        finally:
+            self._dialog_open = False
+
+    def _do_rename_face(self, face_id: int, current_name: str) -> None:
         dialog = tk.Toplevel(self)
         dialog.title("Rename Face")
         dialog.resizable(False, False)
@@ -629,6 +642,8 @@ class Dashboard(tk.Tk):
             self.after(100, self._check_focus)
 
     def _check_focus(self) -> None:
+        if self._dialog_open:
+            return
         if self.focus_displayof() is None:
             self.destroy()
 
